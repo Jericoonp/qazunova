@@ -1,0 +1,93 @@
+[
+  {
+    "tag": "INPUT",
+    "id": null,
+    "name": "state",
+    "type": "hidden",
+    "text": null
+  },
+  {
+    "tag": "LABEL",
+    "id": "username-label",
+    "name": null,
+    "type": null,
+    "text": "Email address *"
+  },
+  {
+    "tag": "INPUT",
+    "id": "username",
+    "name": "username",
+    "type": "text",
+    "text": null
+  },
+  {
+    "tag": "LABEL",
+    "id": "password-label",
+    "name": null,
+    "type": null,
+    "text": "Password *"
+  },
+  {
+    "tag": "INPUT",
+    "id": "password",
+    "name": "password",
+    "type": "password",
+    "text": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": null,
+    "name": null,
+    "type": "button",
+    "text": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": null,
+    "name": "action",
+    "type": "submit",
+    "text": "Continue"
+  },
+  {
+    "tag": "INPUT",
+    "id": null,
+    "name": "state",
+    "type": "hidden",
+    "text": null
+  },
+  {
+    "tag": "INPUT",
+    "id": null,
+    "name": "connection",
+    "type": "hidden",
+    "text": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": null,
+    "name": null,
+    "type": "submit",
+    "text": "Continue with Google"
+  },
+  {
+    "tag": "INPUT",
+    "id": null,
+    "name": "state",
+    "type": "hidden",
+    "text": null
+  },
+  {
+    "tag": "INPUT",
+    "id": null,
+    "name": "connection",
+    "type": "hidden",
+    "text": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": null,
+    "name": null,
+    "type": "submit",
+    "text": "Continue with Apple"
+  }
+]

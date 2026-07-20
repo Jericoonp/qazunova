@@ -34,6 +34,11 @@ export class LoginPage {
     return this.page.locator('body').filter({ hasText: /error|invalid|incorrect|failed|locked/i }).first();
   }
 
+  async assertLoginPageVisible() {
+    await expect(this.usernameInput).toBeVisible();
+    await expect(this.passwordInput).toBeVisible();
+  }
+
   async assertLoginSuccess() {
     await expect(this.page).toHaveURL(/dashboard\.zunou\.ai\/(landing|dashboard|home|account|profile)|callback/i);
   }

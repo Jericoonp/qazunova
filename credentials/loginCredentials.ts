@@ -1,3 +1,15 @@
-export const DEFAULT_LOGIN_URL = process.env.LOGIN_PAGE_URL ?? 'https://dashboard.zunou.ai';
-export const VALID_USERNAME = process.env.LOGIN_TEST_USER ?? 'jerico.pira+001pguest@gmail.com';
-export const VALID_PASSWORD = process.env.LOGIN_TEST_PASSWORD ?? 'Zunou123!';
+function requireEnv(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable: ${name}. Set it in your shell or CI secrets before running the login suite.`
+    );
+  }
+
+  return value;
+}
+
+export const DEFAULT_LOGIN_URL = requireEnv('LOGIN_PAGE_URL');
+export const VALID_USERNAME = requireEnv('LOGIN_TEST_USER');
+export const VALID_PASSWORD = requireEnv('LOGIN_TEST_PASSWORD');

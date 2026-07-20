@@ -30,6 +30,27 @@ async function waitForLoginResponse(page: Page) {
   }
 }
 
+async function assertNotAuthenticated(page: Page, loginPage: LoginPage, response?: Response) {
+  await loginPage.assertLoginPageVisible();
+
+  const currentUrl = new URL(page.url());
+  const currentHost = currentUrl.hostname;
+  const baseHost = new URL(DEFAULT_LOGIN_URL).hostname;
+  const stillOnLoginHost = currentHost === baseHost;
+  const stillOnLoginPath = /login|signin|auth/i.test(currentUrl.pathname);
+
+  expect(stillOnLoginHost || stillOnLoginPath).toBeTruthy();
+
+  const sessionCookie = (await page.context().cookies()).find((cookie) => /session|token|auth/i.test(cookie.name));
+  expect(sessionCookie).toBeUndefined();
+
+  const errorMessage = await loginPage.getErrorMessage();
+  const errorVisible = (await errorMessage.count()) > 0;
+  const authRequestFailed = (response?.status() ?? 0) >= 400;
+
+  expect(errorVisible || authRequestFailed || !response).toBeTruthy();
+}
+
 async function assertOutcome(response: Response | undefined, loginPage: LoginPage, expectedMode: 'success' | 'failure') {
   if (expectedMode === 'success') {
     expect(response).toBeDefined();
@@ -39,22 +60,16 @@ async function assertOutcome(response: Response | undefined, loginPage: LoginPag
     return;
   }
 
-  if (!response) {
-    await expect(loginPage.usernameInput).toBeVisible();
-    return;
-  }
-
-  const errorMessage = await loginPage.getErrorMessage();
-  const hasErrorText = await errorMessage.count();
-  const statusSignalsFailure = response.status() >= 400 || response.status() === 200;
-
-  expect(hasErrorText > 0 || statusSignalsFailure).toBeTruthy();
+  await assertNotAuthenticated(loginPage.page, loginPage, response);
 }
 
 test.describe('Login page automation', () => {
   test.afterEach(async ({ page }, testInfo) => {
-    const outcome = testInfo.status === 'passed' ? 'passed' : 'failed';
-    const screenshotPath = buildScreenshotPath(testInfo, outcome);
+    if (testInfo.status === 'passed') {
+      return;
+    }
+
+    const screenshotPath = buildScreenshotPath(testInfo, 'failed');
 
     await page.screenshot({ path: screenshotPath, fullPage: true });
     await testInfo.attach('login-page-screenshot', {
@@ -63,7 +78,7 @@ test.describe('Login page automation', () => {
     });
   });
 
-  test('happy path login with valid credentials', async ({ page }, testInfo) => {
+  test('happy path login with valid credentials', async ({ page }) => {
     const loginPage = new LoginPage(page);
     const responses: Array<{ status: number; url: string; ok: boolean }> = [];
     captureAuthResponse(page, responses);
@@ -84,13 +99,10 @@ test.describe('Login page automation', () => {
     captureAuthResponse(page, responses);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login('invalid.user@example.test', VALID_PASSWORD || 'valid-password');
+    await loginPage.login('invalid.user@example.test', VALID_PASSWORD);
 
     const response = await waitForLoginResponse(page);
     await assertOutcome(response, loginPage, 'failure');
-
-    expect((response?.status() ?? 0) >= 200).toBeTruthy();
-    expect(responses.length).toBeGreaterThanOrEqual(0);
   });
 
   test('negative login with invalid password', async ({ page }) => {
@@ -99,13 +111,10 @@ test.describe('Login page automation', () => {
     captureAuthResponse(page, responses);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME || 'user@example.test', 'wrong-password');
+    await loginPage.login(VALID_USERNAME, 'wrong-password');
 
     const response = await waitForLoginResponse(page);
     await assertOutcome(response, loginPage, 'failure');
-
-    expect((response?.status() ?? 0) >= 200).toBeTruthy();
-    expect(responses.length).toBeGreaterThanOrEqual(0);
   });
 
   test('empty fields login attempt', async ({ page }) => {
@@ -117,12 +126,7 @@ test.describe('Login page automation', () => {
     await loginPage.login('', '');
 
     const response = await waitForLoginResponse(page);
-
-    if (response) {
-      await assertOutcome(response, loginPage, 'failure');
-    }
-
-    expect(responses.length).toBeGreaterThanOrEqual(0);
+    await assertOutcome(response, loginPage, 'failure');
   });
 
   test('long input login attempt', async ({ page }) => {
@@ -136,12 +140,7 @@ test.describe('Login page automation', () => {
     await loginPage.login(longText, longText);
 
     const response = await waitForLoginResponse(page);
-
-    if (response) {
-      await assertOutcome(response, loginPage, 'failure');
-    }
-
-    expect(responses.length).toBeGreaterThanOrEqual(0);
+    await assertOutcome(response, loginPage, 'failure');
   });
 
   test('special characters login attempt', async ({ page }) => {
@@ -155,12 +154,7 @@ test.describe('Login page automation', () => {
     await loginPage.login(specialText, specialText);
 
     const response = await waitForLoginResponse(page);
-
-    if (response) {
-      await assertOutcome(response, loginPage, 'failure');
-    }
-
-    expect(responses.length).toBeGreaterThanOrEqual(0);
+    await assertOutcome(response, loginPage, 'failure');
   });
 
   test('repeated login attempts do not crash the page', async ({ page }) => {
@@ -171,8 +165,7 @@ test.describe('Login page automation', () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await loginPage.login('invalid.user@example.test', 'wrong-password');
 
-    await expect(loginPage.usernameInput).toBeVisible();
-    await expect(loginPage.passwordInput).toBeVisible();
+    await loginPage.assertLoginPageVisible();
   });
 
   test('refresh keeps the login form available', async ({ page }) => {
@@ -181,8 +174,7 @@ test.describe('Login page automation', () => {
     await loginPage.goto(DEFAULT_LOGIN_URL);
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    await expect(loginPage.usernameInput).toBeVisible();
-    await expect(loginPage.passwordInput).toBeVisible();
+    await loginPage.assertLoginPageVisible();
   });
 
   test('back/forward navigation returns to the login page', async ({ page }) => {
@@ -192,7 +184,6 @@ test.describe('Login page automation', () => {
     await page.goBack().catch(() => undefined);
     await page.goForward().catch(() => undefined);
 
-    await expect(loginPage.usernameInput).toBeVisible();
-    await expect(loginPage.passwordInput).toBeVisible();
+    await loginPage.assertLoginPageVisible();
   });
 });

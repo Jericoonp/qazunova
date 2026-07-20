@@ -3,7 +3,11 @@ const fs = require('fs');
 const path = require('path');
 
 (async () => {
-  const url = process.argv[2] || 'https://dashboard.zunou.ai';
+  const url = process.argv[2] || process.env.LOGIN_PAGE_URL;
+
+if (!url) {
+  throw new Error('LOGIN_PAGE_URL must be set in the environment before running this scanner.');
+}
 
   const domDir = path.join(__dirname, '../artifacts/dom');
   const shotDir = path.join(__dirname, '../artifacts/screenshots');

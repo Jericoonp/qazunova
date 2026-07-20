@@ -1,12 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "types": ["node"],
     "esModuleInterop": true,
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["tests/**/*.ts", "pages/**/*.ts"]
+  "include": ["tests/**/*.ts", "pages/**/*.ts", "credentials/**/*.ts", "playwright.config.ts"]
 }

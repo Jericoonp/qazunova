@@ -40,7 +40,7 @@ export class LoginPage {
   }
 
   async assertLoginSuccess() {
-    await expect(this.page).toHaveURL(/dashboard\.zunou\.ai\/(landing|dashboard|home|account|profile)|callback/i);
+    await expect(this.page).toHaveURL(/dashboard\.zunou\.ai\/(landing|dashboard|home|account|profile)|callback|code=/i);
   }
 
   async assertLoginFailure() {

@@ -14,7 +14,7 @@ Validate the reusable login page automation framework against the DOM artifact p
 - Real credentials are provided through environment variables when running the success scenario.
 - The page may respond with redirect, session creation, or authentication error status codes; tests validate observable behavior rather than hardcoded post-login paths.
 
-## Test Data
+## Test Datas
 - Valid user: LOGIN_TEST_USER
 - Valid password: LOGIN_TEST_PASSWORD
 - Invalid user: invalid.user@example.test
@@ -24,7 +24,7 @@ Validate the reusable login page automation framework against the DOM artifact p
 - Special characters: !@#$%^&*()_+-=<>?/[]{}|;:'",.\
 - Whitespace inputs: '   ' and trailing spaces
 
-## Coverage
+## Coverages
 1. Happy path
    - Valid username + valid password -> successful login attempt.
 2. Negative scenarios

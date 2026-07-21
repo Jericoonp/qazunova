@@ -28,7 +28,9 @@ export class PulsePage {
   /** First-run onboarding (landing page + product tour) only appears sometimes. */
   async dismissOnboardingIfPresent() {
     await this.enterWorkspaceButton.click({ timeout: 10000 }).catch(() => undefined);
-    await this.skipTourButton.click({ timeout: 5000 }).catch(() => undefined);
+    // The tour's tooltip can take a while to mount on slower (CI) runners; a short
+    // timeout here silently fails and leaves its backdrop blocking every later click.
+    await this.skipTourButton.click({ timeout: 20000 }).catch(() => undefined);
   }
 
   async createTeamChannel(name: string) {

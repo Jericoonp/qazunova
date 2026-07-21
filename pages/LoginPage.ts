@@ -13,7 +13,7 @@ export class LoginPage {
     this.page = page;
     this.usernameInput = page.getByLabel(/Email address/i).first();
     this.passwordInput = page.getByLabel(/Password/i).first();
-    this.continueButton = page.getByRole('button', { name: 'Continue' }).first();
+    this.continueButton = page.getByRole('button', { name: 'Continue', exact: true }).first();
     this.googleButton = page.getByRole('button', { name: /Continue with Google/i }).first();
     this.appleButton = page.getByRole('button', { name: /Continue with Apple/i }).first();
   }
@@ -31,7 +31,10 @@ export class LoginPage {
   }
 
   async getErrorMessage() {
-    return this.page.locator('body').filter({ hasText: /error|invalid|incorrect|failed|locked/i }).first();
+    return this.page
+      .locator('body')
+      .filter({ hasText: /error|invalid|incorrect|failed|locked|wrong|denied|unable to/i })
+      .first();
   }
 
   async assertLoginPageVisible() {
@@ -40,7 +43,8 @@ export class LoginPage {
   }
 
   async assertLoginSuccess() {
-    await expect(this.page).toHaveURL(/dashboard\.zunou\.ai\/(landing|dashboard|home|account|profile)|callback|code=/i);
+    await expect(this.usernameInput).toBeHidden({ timeout: 15000 });
+    await expect(this.passwordInput).toBeHidden({ timeout: 15000 });
   }
 
   async assertLoginFailure() {

@@ -148,6 +148,7 @@ vite.config.ts.timestamp-*
 blob-report/
 playwright/.cache/
 playwright/.auth/
+.playwright-mcp/
 
 # Test artifacts and screenshots
 artifacts/

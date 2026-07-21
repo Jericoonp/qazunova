@@ -4,6 +4,11 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  # Nightly regression run against staging (02:00 UTC daily).
+  schedule:
+    - cron: '0 2 * * *'
+  # Allow manual, on-demand runs from the Actions tab.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -24,8 +29,10 @@ jobs:
         run: npx playwright install --with-deps
       - name: Run Playwright tests
         run: npx playwright test
-      - name: Upload Playwright report on failure
-        if: ${{ failure() }}
+      - name: Upload Playwright report
+        # Always keep the report on scheduled/manual runs (for the nightly record),
+        # and on any failed push/PR run.
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report

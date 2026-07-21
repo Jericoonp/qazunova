@@ -41,7 +41,10 @@ async function assertNotAuthenticated(page: Page, loginPage: LoginPage, response
 
   expect(stillOnLoginHost || stillOnLoginPath).toBeTruthy();
 
-  const sessionCookie = (await page.context().cookies()).find((cookie) => /session|token|auth/i.test(cookie.name));
+  const AUTH0_TRANSACTION_COOKIES = new Set(['auth0', 'auth0_compat']);
+  const sessionCookie = (await page.context().cookies()).find(
+    (cookie) => /session|token/i.test(cookie.name) || (/auth/i.test(cookie.name) && !AUTH0_TRANSACTION_COOKIES.has(cookie.name))
+  );
   expect(sessionCookie).toBeUndefined();
 
   const errorMessage = await loginPage.getErrorMessage();

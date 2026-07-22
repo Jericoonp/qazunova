@@ -89,6 +89,7 @@ export class NotesPage {
 
   readonly enterZunouButton: Locator;
   readonly skipTourButton: Locator;
+  readonly cancelTimezoneMismatchButton: Locator;
   readonly moreNavToggle: Locator;
   readonly notesNavLink: Locator;
   readonly pageHeading: Locator;
@@ -110,6 +111,11 @@ export class NotesPage {
 
     this.enterZunouButton = page.getByRole('button', { name: 'Enter Zunou' });
     this.skipTourButton = page.getByRole('button', { name: 'Skip' });
+    // Matches PulsePage.ts's cancelTimezoneMismatchButton on main (not
+    // `exact: true` there either) -- deliberately a separate locator from
+    // deleteConfirmationCancelButton below even though both target a
+    // "Cancel" button, since they belong to unrelated dialogs.
+    this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
     this.moreNavToggle = page.getByRole('button', { name: 'More', exact: true });
     this.notesNavLink = page.getByRole('button', { name: 'Notes', exact: true });
     this.pageHeading = page.getByText('My Notes', { exact: true });
@@ -146,8 +152,19 @@ export class NotesPage {
   private async dismissOnboardingIfPresent() {
     await this.enterZunouButton.click({ timeout: NAV_STEP_TIMEOUT_MS }).catch(() => undefined);
     // The tour tends to take longer to mount than the welcome screen itself
-    // -- see ONBOARDING_TOUR_TIMEOUT_MS.
+    // -- see ONBOARDING_TOUR_TIMEOUT_MS. It must be skipped before the
+    // timezone dialog below: the tour's full-page overlay sits on top of
+    // the dialog's buttons even though the dialog renders visually in front
+    // of it (matches PulsePage.ts's comment on main -- same underlying bug).
     await this.skipTourButton.click({ timeout: ONBOARDING_TOUR_TIMEOUT_MS }).catch(() => undefined);
+    // CI runners run in UTC, which differs from this account's configured
+    // organization timezone, triggering a "timezone mismatch" dialog on
+    // every fresh CI login (per PulsePage.ts on main). Left undismissed,
+    // it sits on top of the sidebar and blocks the moreNavToggle/
+    // notesNavLink clicks below -- this was the missing step that made
+    // open() hang out its full test timeout on CI even after the tour and
+    // welcome screen were already being handled correctly.
+    await this.cancelTimezoneMismatchButton.click({ timeout: NAV_STEP_TIMEOUT_MS }).catch(() => undefined);
   }
 
   /**

@@ -32,12 +32,16 @@ test.use({ video: 'off', trace: 'off' });
 
 test.describe('Notes module automation', () => {
   // The staging environment is noticeably slow (page loads and network
-  // round-trips routinely take several seconds), so this file's default
-  // per-test timeout is raised above Playwright's 30s default to give the
-  // widened waits in NotesPage room to actually resolve instead of being
-  // killed mid-wait. Individual tests that need still more (e.g. typing a
-  // long string) add their own extra budget on top via testInfo.setTimeout().
-  test.describe.configure({ timeout: 60000 });
+  // round-trips routinely take several seconds), and every test here drives
+  // its own fresh login (no shared storage state) through NotesPage.open(),
+  // which on CI reliably has to dismiss the "Enter Zunou" welcome screen and
+  // product tour first -- tests/pulse.spec.ts on main hit the same combined
+  // cost and independently settled on the same 90s budget ("Login + the
+  // onboarding tour dismissal alone can take 15-20s on CI runners, leaving
+  // too little of the default 30s test timeout for [the rest of the test]").
+  // Individual tests that need still more (e.g. typing a long string) add
+  // their own extra budget on top via testInfo.setTimeout().
+  test.describe.configure({ timeout: 90000 });
 
   let notesPage: NotesPage;
   // Titles created during a test are tracked here so afterEach can clean

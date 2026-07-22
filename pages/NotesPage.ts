@@ -60,6 +60,10 @@ const FIELD_SYNC_SETTLE_MS = 1000;
  */
 const DELETE_PERSIST_SETTLE_MS = 1500;
 const NAV_STEP_TIMEOUT_MS = 15000;
+// The product tour (react-joyride) tends to mount noticeably later than the
+// "Enter Zunou" welcome screen itself on CI -- pulse.spec.ts/PulsePage.ts on
+// main independently landed on the same 20s budget for the same step.
+const ONBOARDING_TOUR_TIMEOUT_MS = 20000;
 const DIALOG_LOAD_TIMEOUT_MS = 15000;
 const SAVE_ROUNDTRIP_TIMEOUT_MS = 20000;
 const TOAST_TIMEOUT_MS = 15000;
@@ -126,106 +130,39 @@ export class NotesPage {
   }
 
   /**
-   * Waits until the first of the given locators becomes visible and returns
-   * it, or undefined if none did within the timeout. Racing candidates
-   * (rather than probing each one in turn with its own full timeout) means
-   * whichever screen the app actually renders is detected almost
-   * immediately, instead of paying for a full timeout on every screen that
-   * *didn't* render first.
+   * First-run onboarding (the "Enter Zunou" welcome landing, then a product
+   * tour) only appears sometimes locally, but reliably appears after a
+   * genuinely fresh login on CI -- confirmed by tests/dashboard.spec.ts and
+   * tests/pulse.spec.ts on main, which assert on / dismiss these same
+   * screens as an expected part of every fresh CI login, not a rare edge
+   * case. (An earlier version of this method assumed onboarding "never"
+   * appears for this account; that was checked against an
+   * already-authenticated session, not a truly fresh login, and was wrong.)
+   * Mirrors PulsePage.dismissOnboardingIfPresent()'s proven pattern: try
+   * each expected step in its actual order and swallow the timeout if it's
+   * genuinely absent, rather than racing all landing screens at once or
+   * reactively retrying through whatever ends up intercepting a click.
    */
-  private async waitForFirstVisible(locators: Locator[], timeout: number): Promise<Locator | undefined> {
-    try {
-      await Promise.race(locators.map((locator) => locator.waitFor({ state: 'visible', timeout })));
-    } catch {
-      return undefined;
-    }
-
-    for (const locator of locators) {
-      if (await locator.isVisible().catch(() => false)) {
-        return locator;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Clicks target, but treats a click that keeps getting intercepted as a
-   * signal that an onboarding overlay (the product tour, the "Enter Zunou"
-   * welcome modal) is still mounting rather than as a plain flake. On a
-   * genuinely fresh login -- which happens on every test here, since each
-   * one drives its own live Auth0 login -- that overlay can render a moment
-   * AFTER the sidebar/nav target first becomes visible, which a single
-   * click (or one upfront visibility check) cannot anticipate. Confirmed
-   * live on CI: a browser resolved straight to clicking "Notes" and then
-   * retried the click for ~15s straight against `#react-joyride-portal` /
-   * a `MuiModal-backdrop` intercepting every attempt, because nothing ever
-   * dismissed the tour that had since appeared. This proactively dismisses
-   * whatever's known to cause that class of interception and retries,
-   * instead of trusting the target to become clickable on its own.
-   */
-  private async clickPastOnboardingOverlays(target: Locator, timeoutMs: number) {
-    const deadline = Date.now() + timeoutMs;
-
-    while (true) {
-      try {
-        await target.click({ timeout: 3000 });
-        return;
-      } catch (error) {
-        if (Date.now() >= deadline) {
-          throw error;
-        }
-
-        if (await this.skipTourButton.isVisible().catch(() => false)) {
-          await this.skipTourButton.click().catch(() => undefined);
-        } else if (await this.enterZunouButton.isVisible().catch(() => false)) {
-          await this.enterZunouButton.click().catch(() => undefined);
-        }
-
-        await this.page.waitForTimeout(500);
-      }
-    }
+  private async dismissOnboardingIfPresent() {
+    await this.enterZunouButton.click({ timeout: NAV_STEP_TIMEOUT_MS }).catch(() => undefined);
+    // The tour tends to take longer to mount than the welcome screen itself
+    // -- see ONBOARDING_TOUR_TIMEOUT_MS.
+    await this.skipTourButton.click({ timeout: ONBOARDING_TOUR_TIMEOUT_MS }).catch(() => undefined);
   }
 
   /**
    * Navigates from a freshly-logged-in landing page into the workspace,
-   * then opens Notes. Which screen renders first is not deterministic: a
-   * fresh login can show an "Enter Zunou" welcome screen and then an
-   * optional product tour, or skip straight past both onboarding steps to
-   * the workspace, where the sidebar is collapsed to a "More" toggle hiding
-   * the Notes link. Racing all of the possible next screens (instead of
-   * probing each one serially with its own full NAV_STEP_TIMEOUT_MS) means
-   * the common case -- no onboarding shown -- isn't stuck waiting out two
-   * full onboarding timeouts before it even starts looking for the real
-   * sidebar. The final clicks go through clickPastOnboardingOverlays()
-   * rather than a plain .click() because the race only tells us what was
-   * visible at one instant -- an onboarding overlay can still mount a
-   * moment later on top of the target.
+   * then opens Notes.
    */
   async open() {
-    let landed = await this.waitForFirstVisible(
-      [this.enterZunouButton, this.skipTourButton, this.notesNavLink, this.moreNavToggle],
-      NAV_STEP_TIMEOUT_MS
-    );
+    await this.dismissOnboardingIfPresent();
 
-    if (landed === this.enterZunouButton) {
-      await this.enterZunouButton.click();
-      landed = await this.waitForFirstVisible(
-        [this.skipTourButton, this.notesNavLink, this.moreNavToggle],
-        NAV_STEP_TIMEOUT_MS
-      );
+    const notesLinkShown = await this.notesNavLink.isVisible().catch(() => false);
+    if (!notesLinkShown) {
+      await this.moreNavToggle.click();
     }
 
-    if (landed === this.skipTourButton) {
-      await this.skipTourButton.click();
-      landed = await this.waitForFirstVisible([this.notesNavLink, this.moreNavToggle], NAV_STEP_TIMEOUT_MS);
-    }
-
-    if (landed !== this.notesNavLink) {
-      await this.clickPastOnboardingOverlays(this.moreNavToggle, NAV_STEP_TIMEOUT_MS);
-    }
-
-    await this.clickPastOnboardingOverlays(this.notesNavLink, NAV_STEP_TIMEOUT_MS);
+    await this.notesNavLink.click();
     await this.assertNotesPageLoaded();
   }
 

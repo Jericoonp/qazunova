@@ -97,6 +97,17 @@ test.describe('Notes module automation', () => {
   let createdTitles: string[];
 
   test.beforeAll(async ({ browser }) => {
+    // `test.describe.configure({ timeout })` above only raises the timeout
+    // for tests, NOT for beforeAll/afterAll hooks -- hooks fall back to
+    // playwright.config.ts's top-level `timeout`, which this repo never
+    // sets, so it defaults to Playwright's built-in 30000ms. This hook does
+    // a full live login AND a full NotesPage.open() navigation, which
+    // reliably fits in 30s on a fast local connection but not on CI's
+    // slower/higher-latency path to the staging server -- confirmed via a
+    // CI run that failed with "beforeAll hook timeout of 30000ms exceeded"
+    // while mid-navigation. Give it the same budget as the slowest tests.
+    test.setTimeout(90000);
+
     // Deliberately not the `page`/`context` fixtures used by the tests --
     // this needs its own short-lived, storageState-free context so it
     // performs one real login and captures a clean session, rather than

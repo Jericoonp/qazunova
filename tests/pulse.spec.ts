@@ -10,6 +10,10 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
 }
 
 test.describe('Pulse (team channel) lifecycle', () => {
+  // Login + the onboarding tour dismissal alone can take 15-20s on CI runners,
+  // leaving too little of the default 30s test timeout for create/message/rename/delete.
+  test.describe.configure({ timeout: 90_000 });
+
   test.afterEach(async ({ page }, testInfo) => {
     if (testInfo.status === 'passed') {
       return;
@@ -41,7 +45,9 @@ test.describe('Pulse (team channel) lifecycle', () => {
 
     const messageText = 'Hello from the automated pulse test.';
     await pulsePage.sendMessage(messageText);
-    await expect(page.getByText(messageText)).toBeVisible();
+    // Scoped to the rendered message bubble (a <p>), not the composer input -
+    // the composer can briefly still hold the same text after Send on some browsers.
+    await expect(page.locator('p').getByText(messageText)).toBeVisible();
 
     const renamedChannelName = `${channelName} (Renamed)`;
     await pulsePage.renamePulse(channelName, renamedChannelName);

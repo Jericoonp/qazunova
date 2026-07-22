@@ -38,3 +38,13 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
+      - name: Upload failure screenshots & videos
+        # Raw per-test screenshots, videos, and traces for quick access without
+        # opening the full HTML report.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 30
+          if-no-files-found: ignore

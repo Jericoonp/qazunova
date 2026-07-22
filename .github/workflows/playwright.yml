@@ -22,8 +22,12 @@ jobs:
         project: [chromium, firefox, webkit]
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}
-      LOGIN_TEST_USER: ${{ secrets.LOGIN_TEST_USER }}
-      LOGIN_TEST_PASSWORD: ${{ secrets.LOGIN_TEST_PASSWORD }}
+      # Each browser shard authenticates as its own dedicated staging
+      # account so parallel shards never mutate each other's data (notes.spec.ts
+      # bulk-clears its account's notes in beforeAll, which otherwise races
+      # across concurrently-running shards on a shared account).
+      LOGIN_TEST_USER: ${{ matrix.project == 'firefox' && secrets.LOGIN_TEST_USER_FIREFOX || matrix.project == 'webkit' && secrets.LOGIN_TEST_USER_WEBKIT || secrets.LOGIN_TEST_USER }}
+      LOGIN_TEST_PASSWORD: ${{ matrix.project == 'firefox' && secrets.LOGIN_TEST_PASSWORD_FIREFOX || matrix.project == 'webkit' && secrets.LOGIN_TEST_PASSWORD_WEBKIT || secrets.LOGIN_TEST_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

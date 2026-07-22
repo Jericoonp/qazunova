@@ -106,19 +106,18 @@ test.describe('Notes module automation', () => {
     });
 
     /**
-     * Deliberately placed first, before any Create/Read/Update test has a
-     * chance to leave a note behind. This assertion only holds on a
-     * genuinely empty shared staging account -- every other test in this
-     * file creates at least one note, so running this after any of them
-     * makes it depend on their afterEach cleanup having fully succeeded
-     * (including the delete's server-side persistence -- see
-     * DELETE_PERSIST_SETTLE_MS in NotesPage.ts). It used to live inside the
-     * Read block, sandwiched after 5 Create tests and 2 Read tests; a single
-     * flaky cleanup anywhere upstream made this fail with unrelated leftover
-     * notes. Running first removes that dependency for this suite's own
-     * tests (it still assumes the account was empty when the run started).
+     * Used to assume the shared staging account already happened to be
+     * empty when the suite started, which made it depend on every other
+     * test's afterEach cleanup having fully succeeded first (including the
+     * delete's server-side persistence -- see DELETE_PERSIST_SETTLE_MS in
+     * NotesPage.ts) -- a single flaky cleanup anywhere left this failing
+     * against unrelated leftover notes. Now self-contained: explicitly
+     * deletes whatever notes exist first, so the empty-state assertion
+     * holds regardless of what any other run left behind.
      */
     test('empty state is displayed when no notes exist', async () => {
+      await notesPage.deleteAllNotes();
+
       await expect(notesPage.emptyState).toBeVisible();
       await expect(notesPage.page.getByText('Notes you add will appear here', { exact: true })).toBeVisible();
     });

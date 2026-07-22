@@ -414,6 +414,46 @@ export class NotesPage {
     }
   }
 
+  /**
+   * Deletes every note currently in the list, regardless of title, then
+   * leaves the caller on the empty-list view. Used to put the shared
+   * staging account into a known-empty state before asserting the
+   * empty-state UI, rather than assuming the account happens to already be
+   * empty when the suite starts. Deletes the first card repeatedly (instead
+   * of collecting all cards upfront) because each delete re-renders the
+   * list -- a pre-collected set of locators would go stale after the first
+   * deletion. Verified live via Playwright MCP against 8 real leftover
+   * notes in the shared staging account: all 8 deleted and the empty state
+   * ("No notes yet" / "Notes you add will appear here") rendered correctly
+   * afterward.
+   */
+  async deleteAllNotes() {
+    const cards = this.page.locator('.MuiCard-root');
+    // Bounds the loop so a genuine app bug (delete not actually removing
+    // the card) fails fast with a clear error instead of hanging forever.
+    const MAX_NOTES_TO_DELETE = 50;
+
+    for (let i = 0; i < MAX_NOTES_TO_DELETE; i++) {
+      const count = await cards.count();
+      if (count === 0) {
+        return;
+      }
+
+      await cards.first().click();
+      await expect(this.dialog).toBeVisible({ timeout: DIALOG_LOAD_TIMEOUT_MS });
+      await this.dialogDeleteButton().click();
+      await expect(this.deleteConfirmationHeading).toBeVisible();
+      await this.deleteConfirmationConfirmButton.click();
+      await expect(this.deleteConfirmationHeading).toHaveCount(0, { timeout: SAVE_ROUNDTRIP_TIMEOUT_MS });
+      // Same reasoning as deleteNote() -- see DELETE_PERSIST_SETTLE_MS.
+      await this.page.waitForTimeout(DELETE_PERSIST_SETTLE_MS);
+    }
+
+    throw new Error(
+      `deleteAllNotes: still had notes left after attempting to delete ${MAX_NOTES_TO_DELETE} -- possible infinite loop or a note that won't delete.`
+    );
+  }
+
   async assertToastMessage(pattern: RegExp) {
     await expect(this.toast.filter({ hasText: pattern })).toBeVisible({ timeout: TOAST_TIMEOUT_MS });
   }

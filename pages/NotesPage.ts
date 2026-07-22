@@ -153,17 +153,16 @@ export class NotesPage {
    * Clicks target, but treats a click that keeps getting intercepted as a
    * signal that an onboarding overlay (the product tour, the "Enter Zunou"
    * welcome modal) is still mounting rather than as a plain flake. On a
-   * genuinely fresh account/browser -- which only happens in CI, since
-   * local runs tend to reuse a browser/session already past onboarding --
-   * that overlay can render a moment AFTER the sidebar/nav target first
-   * becomes visible, which a single click (or one upfront visibility check)
-   * cannot anticipate. Confirmed live on CI: webkit resolved straight to
-   * clicking "Notes" and then retried the click for ~15s straight against
-   * `#react-joyride-portal` / a `MuiModal-backdrop` intercepting every
-   * attempt, because nothing ever dismissed the tour that had since
-   * appeared. This proactively dismisses whatever's known to cause that
-   * class of interception and retries, instead of trusting the target to
-   * become clickable on its own.
+   * genuinely fresh login -- which happens on every test here, since each
+   * one drives its own live Auth0 login -- that overlay can render a moment
+   * AFTER the sidebar/nav target first becomes visible, which a single
+   * click (or one upfront visibility check) cannot anticipate. Confirmed
+   * live on CI: a browser resolved straight to clicking "Notes" and then
+   * retried the click for ~15s straight against `#react-joyride-portal` /
+   * a `MuiModal-backdrop` intercepting every attempt, because nothing ever
+   * dismissed the tour that had since appeared. This proactively dismisses
+   * whatever's known to cause that class of interception and retries,
+   * instead of trusting the target to become clickable on its own.
    */
   private async clickPastOnboardingOverlays(target: Locator, timeoutMs: number) {
     const deadline = Date.now() + timeoutMs;
@@ -189,20 +188,19 @@ export class NotesPage {
   }
 
   /**
-   * Navigates from a freshly-logged-in (or session-restored) landing page
-   * into the workspace, then opens Notes. Which screen renders first is not
-   * deterministic: a brand-new account/browser sees an "Enter Zunou"
-   * welcome screen and then an optional product tour, while a returning/
-   * already-authenticated session skips straight past both onboarding
-   * steps to the workspace, where the sidebar is collapsed to a "More"
-   * toggle hiding the Notes link. Racing all of the possible next screens
-   * (instead of probing each one serially with its own full
-   * NAV_STEP_TIMEOUT_MS) means the common case -- no onboarding shown --
-   * isn't stuck waiting out two full onboarding timeouts before it even
-   * starts looking for the real sidebar. The final clicks go through
-   * clickPastOnboardingOverlays() rather than a plain .click() because the
-   * race only tells us what was visible at one instant -- an onboarding
-   * overlay can still mount a moment later on top of the target.
+   * Navigates from a freshly-logged-in landing page into the workspace,
+   * then opens Notes. Which screen renders first is not deterministic: a
+   * fresh login can show an "Enter Zunou" welcome screen and then an
+   * optional product tour, or skip straight past both onboarding steps to
+   * the workspace, where the sidebar is collapsed to a "More" toggle hiding
+   * the Notes link. Racing all of the possible next screens (instead of
+   * probing each one serially with its own full NAV_STEP_TIMEOUT_MS) means
+   * the common case -- no onboarding shown -- isn't stuck waiting out two
+   * full onboarding timeouts before it even starts looking for the real
+   * sidebar. The final clicks go through clickPastOnboardingOverlays()
+   * rather than a plain .click() because the race only tells us what was
+   * visible at one instant -- an onboarding overlay can still mount a
+   * moment later on top of the target.
    */
   async open() {
     let landed = await this.waitForFirstVisible(

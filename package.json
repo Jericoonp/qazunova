@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test:login": "playwright test tests/login.spec.ts"
+    "test:login": "playwright test tests/login.spec.ts",
+    "test:notes": "playwright test tests/notes.spec.ts --workers=1"
   },
   "repository": {
     "type": "git",

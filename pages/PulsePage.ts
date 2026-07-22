@@ -11,6 +11,7 @@ export class PulsePage {
   readonly sendButton: Locator;
   readonly enterWorkspaceButton: Locator;
   readonly skipTourButton: Locator;
+  readonly cancelTimezoneMismatchButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -23,12 +24,19 @@ export class PulsePage {
     this.sendButton = page.getByRole('button', { name: 'Send', exact: true });
     this.enterWorkspaceButton = page.getByRole('button', { name: 'Enter Zunou' });
     this.skipTourButton = page.getByRole('button', { name: 'Skip' });
+    this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
   }
 
   /** First-run onboarding (landing page + product tour) only appears sometimes. */
   async dismissOnboardingIfPresent() {
     await this.enterWorkspaceButton.click({ timeout: 10000 }).catch(() => undefined);
+    // The tour must be skipped before the timezone dialog, since the tour's
+    // full-page overlay sits on top of the dialog's buttons even though the
+    // dialog renders visually in front of it (a real app z-index bug).
     await this.skipTourButton.click({ timeout: 20000 }).catch(() => undefined);
+    // CI runners run in UTC, which differs from the account's configured
+    // organization timezone (Asia/Manila), triggering this dialog every run.
+    await this.cancelTimezoneMismatchButton.click({ timeout: 10000 }).catch(() => undefined);
   }
 
   async createTeamChannel(name: string) {

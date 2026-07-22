@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Page } from '@playwright/test';
 import { DEFAULT_LOGIN_URL, VALID_PASSWORD, VALID_USERNAME } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 import { NotesPage } from '../pages/NotesPage';
@@ -19,7 +19,12 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
   return path.resolve(process.cwd(), 'screenshots', outcome, safeName);
 }
 
-// Gitignored (see playwright/.auth/ in .gitignore) -- never committed.
+// Gitignored (see playwright/.auth/ in .gitignore) -- never committed. Named
+// after this suite specifically (not e.g. "auth.json") because CI caches the
+// whole playwright/.auth/ directory (see .github/workflows/playwright.yml) --
+// a future suite adding its own shared login should pick its own distinct
+// filename under this directory rather than reusing this one, so the two
+// suites' sessions can't stomp on each other.
 const AUTH_STATE_PATH = path.resolve(process.cwd(), 'playwright/.auth/notes-user.json');
 
 /**
@@ -58,6 +63,49 @@ async function authenticateAndSaveState(page: Page) {
     throw new Error(
       `authenticateAndSaveState: captured storage state at ${AUTH_STATE_PATH} has no cookies or localStorage -- login likely did not actually persist a session.`
     );
+  }
+}
+
+/**
+ * Tries to reuse a previously-saved session at AUTH_STATE_PATH (e.g.
+ * restored from the CI cache) instead of driving a live login. Returns
+ * whether it actually worked. The whole point of this check is to avoid the
+ * live UI login path on CI whenever possible -- it's driven the app's
+ * Auth0/onboarding flow unreliably from GitHub Actions' network path in a
+ * way that never reproduced locally (all three browsers failing the same
+ * "reach the Notes page" step, not just one), so the fewer runs that need
+ * it, the fewer runs are exposed to that flakiness. If the file is missing
+ * or the session it holds has since expired, this is a no-op and the caller
+ * falls back to authenticateAndSaveState() as before.
+ */
+async function tryReuseExistingSession(browser: Browser): Promise<boolean> {
+  if (!fs.existsSync(AUTH_STATE_PATH)) {
+    return false;
+  }
+
+  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  const page = await context.newPage();
+
+  try {
+    await page.goto(DEFAULT_LOGIN_URL, { waitUntil: 'domcontentloaded' });
+
+    const loginPage = new LoginPage(page);
+    const sessionExpired = await loginPage.usernameInput.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (sessionExpired) {
+      return false;
+    }
+
+    const notesPage = new NotesPage(page);
+    await notesPage.open();
+    return true;
+  } catch {
+    // Any failure here (navigation error, open() timing out, etc.) just
+    // means the cached session isn't usable right now -- fall back to a
+    // full live login rather than surfacing this as a test failure.
+    return false;
+  } finally {
+    await context.close();
   }
 }
 
@@ -108,13 +156,23 @@ test.describe('Notes module automation', () => {
     // while mid-navigation. Give it the same budget as the slowest tests.
     test.setTimeout(90000);
 
-    // Deliberately not the `page`/`context` fixtures used by the tests --
-    // this needs its own short-lived, storageState-free context so it
-    // performs one real login and captures a clean session, rather than
-    // reusing (or polluting) any test's context. `browser.newContext()`
-    // inherits the describe-level `test.use({ storageState: AUTH_STATE_PATH })`
-    // as a default, so it must be explicitly overridden here -- otherwise
-    // this very call tries to read the auth file before it has been written.
+    // Try the cached session (e.g. restored from CI's daily-keyed cache,
+    // see .github/workflows/playwright.yml) before ever touching the login
+    // UI -- see tryReuseExistingSession()'s doc comment for why avoiding
+    // that path on CI specifically is the goal here.
+    if (await tryReuseExistingSession(browser)) {
+      return;
+    }
+
+    // No usable cached session -- deliberately not the `page`/`context`
+    // fixtures used by the tests, this needs its own short-lived,
+    // storageState-free context so it performs one real login and captures
+    // a clean session, rather than reusing (or polluting) any test's
+    // context. `browser.newContext()` inherits the describe-level
+    // `test.use({ storageState: AUTH_STATE_PATH })` as a default, so it
+    // must be explicitly overridden here -- otherwise this very call tries
+    // to read the auth file before it has been written (or reuses the
+    // stale one we just determined doesn't work).
     const context = await browser.newContext({ storageState: undefined });
     const page = await context.newPage();
 

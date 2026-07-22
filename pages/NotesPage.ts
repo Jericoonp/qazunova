@@ -126,37 +126,64 @@ export class NotesPage {
   }
 
   /**
-   * Navigates from a freshly-logged-in landing page into the workspace, then
-   * opens Notes. Each intermediate screen is optional and can take a moment
-   * to render after the Auth0 redirect, so we explicitly wait for it rather
-   * than using a point-in-time `isVisible()` check (which races the SPA's
-   * client-side navigation and can silently resolve to "not present").
+   * Waits until the first of the given locators becomes visible and returns
+   * it, or undefined if none did within the timeout. Racing candidates
+   * (rather than probing each one in turn with its own full timeout) means
+   * whichever screen the app actually renders is detected almost
+   * immediately, instead of paying for a full timeout on every screen that
+   * *didn't* render first.
+   */
+  private async waitForFirstVisible(locators: Locator[], timeout: number): Promise<Locator | undefined> {
+    try {
+      await Promise.race(locators.map((locator) => locator.waitFor({ state: 'visible', timeout })));
+    } catch {
+      return undefined;
+    }
+
+    for (const locator of locators) {
+      if (await locator.isVisible().catch(() => false)) {
+        return locator;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Navigates from a freshly-logged-in (or session-restored) landing page
+   * into the workspace, then opens Notes. Which screen renders first is not
+   * deterministic: a brand-new account sees an "Enter Zunou" welcome screen
+   * and then an optional product tour, while a returning/already-
+   * authenticated session skips straight past both onboarding steps to the
+   * workspace, where the sidebar is collapsed to a "More" toggle hiding the
+   * Notes link. Confirmed live via Playwright MCP against the shared
+   * staging account this suite uses: it always lands directly on the
+   * collapsed-sidebar workspace, never the onboarding screens. Racing all
+   * of the possible next screens (instead of probing each one serially with
+   * its own full NAV_STEP_TIMEOUT_MS) means that common case isn't stuck
+   * waiting out two full onboarding timeouts before it even starts looking
+   * for the real sidebar.
    */
   async open() {
-    const enterZunouShown = await this.enterZunouButton
-      .waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS })
-      .then(() => true)
-      .catch(() => false);
+    let landed = await this.waitForFirstVisible(
+      [this.enterZunouButton, this.skipTourButton, this.notesNavLink, this.moreNavToggle],
+      NAV_STEP_TIMEOUT_MS
+    );
 
-    if (enterZunouShown) {
+    if (landed === this.enterZunouButton) {
       await this.enterZunouButton.click();
+      landed = await this.waitForFirstVisible(
+        [this.skipTourButton, this.notesNavLink, this.moreNavToggle],
+        NAV_STEP_TIMEOUT_MS
+      );
     }
 
-    const tourShown = await this.skipTourButton
-      .waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS })
-      .then(() => true)
-      .catch(() => false);
-
-    if (tourShown) {
+    if (landed === this.skipTourButton) {
       await this.skipTourButton.click();
+      landed = await this.waitForFirstVisible([this.notesNavLink, this.moreNavToggle], NAV_STEP_TIMEOUT_MS);
     }
 
-    const notesLinkShown = await this.notesNavLink
-      .waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS })
-      .then(() => true)
-      .catch(() => false);
-
-    if (!notesLinkShown) {
+    if (landed !== this.notesNavLink) {
       await this.moreNavToggle.click();
     }
 

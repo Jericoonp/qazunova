@@ -1,5 +1,6 @@
+import fs from 'fs';
 import path from 'path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { DEFAULT_LOGIN_URL, VALID_PASSWORD, VALID_USERNAME } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 import { NotesPage } from '../pages/NotesPage';
@@ -18,6 +19,48 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
   return path.resolve(process.cwd(), 'screenshots', outcome, safeName);
 }
 
+// Gitignored (see playwright/.auth/ in .gitignore) -- never committed.
+const AUTH_STATE_PATH = path.resolve(process.cwd(), 'playwright/.auth/notes-user.json');
+
+/**
+ * Signs in through the real UI once and persists the resulting cookies/
+ * localStorage to AUTH_STATE_PATH so every test in this file can start
+ * already authenticated via `storageState` instead of repeating the Auth0
+ * login flow. Runs in a throwaway context/page so it never interferes with
+ * the context Playwright builds for the tests themselves.
+ *
+ * The state is deliberately captured only AFTER fully landing on the Notes
+ * page, not right after the login form disappears. `assertLoginSuccess()`
+ * only proves the login form is gone -- on this Auth0-backed SPA the actual
+ * session (silent-auth token exchange, workspace/pulse resolution, etc.)
+ * can still be settling for a moment after that, and capturing storageState
+ * mid-race previously produced a file that looked present but replayed as
+ * logged-out on the very next test. Only snapshotting once the Notes page
+ * itself has loaded guarantees the saved session is one that has already
+ * proven it works.
+ */
+async function authenticateAndSaveState(page: Page) {
+  const loginPage = new LoginPage(page);
+  await loginPage.goto(DEFAULT_LOGIN_URL);
+  await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+  await loginPage.assertLoginSuccess();
+
+  const notesPage = new NotesPage(page);
+  await notesPage.open();
+
+  fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });
+  const state = await page.context().storageState({ path: AUTH_STATE_PATH });
+
+  // Fail fast and loud if the captured state has nothing auth-shaped in it,
+  // rather than letting every downstream test fail later with a confusing
+  // "logged out" symptom traced back to a silently-broken auth file.
+  if (state.cookies.length === 0 && state.origins.every((origin) => origin.localStorage.length === 0)) {
+    throw new Error(
+      `authenticateAndSaveState: captured storage state at ${AUTH_STATE_PATH} has no cookies or localStorage -- login likely did not actually persist a session.`
+    );
+  }
+}
+
 /**
  * IMPORTANT: every test in this file reads/writes the Notes list of the
  * SAME shared staging account. Playwright's default config runs tests in
@@ -27,6 +70,11 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
  * up as flaky, non-deterministic failures. Always run this file with a
  * single worker: `npm run test:notes` (which passes --workers=1) or
  * `npx playwright test tests/notes.spec.ts --workers=1`.
+ *
+ * That single-worker constraint is also what makes the shared-login
+ * optimization below safe: `beforeAll` authenticates exactly once per
+ * worker and every test in the file reuses that one session via
+ * `storageState`, instead of driving the Auth0 form on every single test.
  */
 test.use({ video: 'off', trace: 'off' });
 
@@ -39,22 +87,54 @@ test.describe('Notes module automation', () => {
   // long string) add their own extra budget on top via testInfo.setTimeout().
   test.describe.configure({ timeout: 60000 });
 
+  // Every test in this describe starts from the session captured by
+  // beforeAll below instead of an empty/unauthenticated context.
+  test.use({ storageState: AUTH_STATE_PATH });
+
   let notesPage: NotesPage;
   // Titles created during a test are tracked here so afterEach can clean
   // them up, keeping the shared staging account free of leftover data.
   let createdTitles: string[];
 
+  test.beforeAll(async ({ browser }) => {
+    // Deliberately not the `page`/`context` fixtures used by the tests --
+    // this needs its own short-lived, storageState-free context so it
+    // performs one real login and captures a clean session, rather than
+    // reusing (or polluting) any test's context. `browser.newContext()`
+    // inherits the describe-level `test.use({ storageState: AUTH_STATE_PATH })`
+    // as a default, so it must be explicitly overridden here -- otherwise
+    // this very call tries to read the auth file before it has been written.
+    const context = await browser.newContext({ storageState: undefined });
+    const page = await context.newPage();
+
+    await authenticateAndSaveState(page);
+
+    await context.close();
+  });
+
   test.beforeEach(async ({ page }) => {
     createdTitles = [];
 
-    // Reuse the existing login page object/fixture data instead of duplicating auth logic.
-    const loginPage = new LoginPage(page);
-    await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
-    await loginPage.assertLoginSuccess();
+    // The context already carries the authenticated session from
+    // beforeAll's storageState, so just land on the app...
+    await page.goto(DEFAULT_LOGIN_URL, { waitUntil: 'domcontentloaded' });
 
-    // Enter the workspace and land on the Notes section via the sidebar.
+    const loginPage = new LoginPage(page);
+    const sessionExpired = await loginPage.usernameInput.isVisible({ timeout: 5000 }).catch(() => false);
     notesPage = new NotesPage(page);
+
+    if (sessionExpired) {
+      // Defensive fallback only: if the cached session died mid-run (token
+      // expiry, staging session reset, etc.), re-authenticate live rather
+      // than letting every remaining test in the file fail on a login form
+      // none of them expect to see. authenticateAndSaveState() already
+      // drives all the way to the Notes page, so there is nothing left to
+      // navigate here.
+      await authenticateAndSaveState(page);
+      return;
+    }
+
+    // ...then enter the workspace and land on the Notes section via the sidebar.
     await notesPage.open();
   });
 

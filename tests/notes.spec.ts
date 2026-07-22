@@ -48,6 +48,32 @@ test.describe('Notes module automation', () => {
   // them up, keeping the shared staging account free of leftover data.
   let createdTitles: string[];
 
+  test.beforeAll(async ({ browser }) => {
+    // Bulk-deleting an unknown number of leftover notes (e.g. from a prior
+    // interrupted run) does not reliably fit in a single test's 90s budget
+    // -- confirmed live: with 20 leftover notes in the shared account, the
+    // "empty state" test's own deleteAllNotes() call ran out of its test
+    // timeout partway through and left notes behind. Guaranteeing a clean
+    // slate once, up front, for the whole suite (with its own much larger
+    // timeout) means no single test has to absorb an unpredictable amount
+    // of pre-existing mess on top of its own work.
+    test.setTimeout(300000);
+
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    const loginPage = new LoginPage(page);
+    await loginPage.goto(DEFAULT_LOGIN_URL);
+    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.assertLoginSuccess();
+
+    const cleanupNotesPage = new NotesPage(page);
+    await cleanupNotesPage.open();
+    await cleanupNotesPage.deleteAllNotes();
+
+    await context.close();
+  });
+
   test.beforeEach(async ({ page }) => {
     createdTitles = [];
 
@@ -111,15 +137,30 @@ test.describe('Notes module automation', () => {
      * test's afterEach cleanup having fully succeeded first (including the
      * delete's server-side persistence -- see DELETE_PERSIST_SETTLE_MS in
      * NotesPage.ts) -- a single flaky cleanup anywhere left this failing
-     * against unrelated leftover notes. Now self-contained: explicitly
-     * deletes whatever notes exist first, so the empty-state assertion
-     * holds regardless of what any other run left behind.
+     * against unrelated leftover notes. Now self-contained: if notes
+     * already exist (the suite-level beforeAll should have cleared them,
+     * but this doesn't rely on that), delete them first; either way, the
+     * empty-state assertion holds regardless of what any other run left
+     * behind. The branch is explicit here (rather than just always calling
+     * deleteAllNotes(), which already no-ops when the list is empty) so a
+     * failure clearly shows which path was taken.
      */
     test('empty state is displayed when no notes exist', async () => {
-      await notesPage.deleteAllNotes();
+      if (await notesPage.hasAnyNotes()) {
+        await notesPage.deleteAllNotes();
+      }
 
-      await expect(notesPage.emptyState).toBeVisible();
-      await expect(notesPage.page.getByText('Notes you add will appear here', { exact: true })).toBeVisible();
+      // Explicit generous timeout (matching every other list-affecting
+      // assertion in this file) rather than Playwright's 5000ms default --
+      // the list needs a moment to re-render into the empty view right
+      // after the last deletion above, and 5s isn't always enough on this
+      // environment. Latent before (nothing deleted immediately prior to
+      // this assertion), only surfaced once this test started actively
+      // clearing notes right before checking.
+      await expect(notesPage.emptyState).toBeVisible({ timeout: 15000 });
+      await expect(notesPage.page.getByText('Notes you add will appear here', { exact: true })).toBeVisible({
+        timeout: 15000,
+      });
     });
   });
 

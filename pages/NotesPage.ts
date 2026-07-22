@@ -292,6 +292,42 @@ export class NotesPage {
     return this.noteCard(title).getByText(content, { exact: true });
   }
 
+  /**
+   * Waits for the note list to resolve to either "has at least one note" or
+   * "empty" and returns which, rather than trusting a single point-in-time
+   * `.count()` call. open()'s own assertNotesPageLoaded() only waits for
+   * the page shell (heading + "Take a Note" button) -- the note list itself
+   * can still be fetching for a moment after that already passes, so an
+   * immediate count() can read 0 even though notes genuinely exist and are
+   * about to render. Confirmed live via `npx playwright test` against a
+   * real account with 18 existing notes: hasAnyNotes()'s bare count() read
+   * 0 immediately after open() returned, skipped deleteAllNotes()
+   * entirely, and left all 18 notes on screen while the test then failed
+   * asserting "No notes yet" -- the notes were never actually gone, they
+   * were just not loaded yet at the moment of the check.
+   */
+  private async listHasNotesSettled(): Promise<boolean> {
+    const firstCard = this.page.locator('.MuiCard-root').first();
+
+    const outcome = await Promise.race([
+      firstCard.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }).then(() => true as const),
+      this.emptyState.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }).then(() => false as const),
+    ]).catch(() => undefined);
+
+    if (outcome !== undefined) {
+      return outcome;
+    }
+
+    // Neither resolved within the timeout (unexpected) -- fall back to a
+    // direct count rather than hanging indefinitely.
+    return (await this.page.locator('.MuiCard-root').count()) > 0;
+  }
+
+  /** Whether at least one note currently exists in the list. */
+  async hasAnyNotes(): Promise<boolean> {
+    return this.listHasNotesSettled();
+  }
+
   async assertNoteVisible(title: string) {
     await expect(this.noteCardTitle(title)).toBeVisible();
   }
@@ -422,10 +458,10 @@ export class NotesPage {
    * empty when the suite starts. Deletes the first card repeatedly (instead
    * of collecting all cards upfront) because each delete re-renders the
    * list -- a pre-collected set of locators would go stale after the first
-   * deletion. Verified live via Playwright MCP against 8 real leftover
-   * notes in the shared staging account: all 8 deleted and the empty state
-   * ("No notes yet" / "Notes you add will appear here") rendered correctly
-   * afterward.
+   * deletion. Each iteration's "is there anything left" check goes through
+   * listHasNotesSettled() rather than a bare .count() -- see its doc
+   * comment for why a one-shot count can be wrong on the very first check
+   * right after navigating in.
    */
   async deleteAllNotes() {
     const cards = this.page.locator('.MuiCard-root');
@@ -434,8 +470,7 @@ export class NotesPage {
     const MAX_NOTES_TO_DELETE = 50;
 
     for (let i = 0; i < MAX_NOTES_TO_DELETE; i++) {
-      const count = await cards.count();
-      if (count === 0) {
+      if (!(await this.listHasNotesSettled())) {
         return;
       }
 

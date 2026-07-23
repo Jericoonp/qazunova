@@ -56,4 +56,30 @@ test.describe('Pulse (team channel) lifecycle', () => {
     await pulsePage.deletePulse(renamedChannelName);
     await pulsePage.assertPulseDeleted(renamedChannelName);
   });
+
+  test('schedule an event inside a pulse, then delete it', async ({ page }) => {
+    const loginPage = new LoginPage(page);
+    const pulsePage = new PulsePage(page);
+
+    await loginPage.goto(DEFAULT_LOGIN_URL);
+    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.assertLoginSuccess();
+
+    await pulsePage.dismissOnboardingIfPresent();
+
+    const channelName = `QA Automation Events ${Date.now()}`;
+    await pulsePage.createTeamChannel(channelName);
+    await expect(pulsePage.pulseHeaderButton(channelName)).toBeVisible();
+
+    const eventTitle = `QA Automation Event ${Date.now()}`;
+    await pulsePage.scheduleEvent(eventTitle);
+    await pulsePage.closeEventDetail();
+    await expect(pulsePage.eventListRow(eventTitle)).toBeVisible();
+
+    await pulsePage.deleteEvent(eventTitle);
+    await pulsePage.assertEventDeleted(eventTitle);
+
+    await pulsePage.deletePulse(channelName);
+    await pulsePage.assertPulseDeleted(channelName);
+  });
 });

@@ -12,6 +12,12 @@ export class PulsePage {
   readonly enterWorkspaceButton: Locator;
   readonly skipTourButton: Locator;
   readonly cancelTimezoneMismatchButton: Locator;
+  readonly eventsTab: Locator;
+  readonly scheduleEventButton: Locator;
+  readonly eventTitleInput: Locator;
+  readonly saveEventButton: Locator;
+  readonly deleteEventButton: Locator;
+  readonly closeEventDetailButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -25,6 +31,15 @@ export class PulsePage {
     this.enterWorkspaceButton = page.getByRole('button', { name: 'Enter Zunou' });
     this.skipTourButton = page.getByRole('button', { name: 'Skip' });
     this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
+    this.eventsTab = page.getByRole('tab', { name: 'Events' });
+    this.scheduleEventButton = page.getByRole('button', { name: /^Schedule Event/ });
+    this.eventTitleInput = page.getByRole('textbox', { name: 'Add Title' });
+    this.saveEventButton = page.getByRole('button', { name: 'Save', exact: true });
+    // Reused for both the detail panel's Delete button and the confirmation
+    // dialog's Delete button - MUI marks the panel inert (aria-hidden) once the
+    // confirmation dialog opens, so this always resolves to a single element.
+    this.deleteEventButton = page.getByRole('button', { name: 'Delete', exact: true });
+    this.closeEventDetailButton = page.getByRole('button', { name: 'close', exact: true });
   }
 
   /** First-run onboarding (landing page + product tour) only appears sometimes. */
@@ -86,5 +101,41 @@ export class PulsePage {
   async assertPulseDeleted(name: string) {
     await expect(this.page.getByText('Pulse deleted successfully')).toBeVisible();
     await expect(this.page.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
+
+  async scheduleEvent(title: string) {
+    await this.eventsTab.click();
+    await this.scheduleEventButton.click();
+    await this.eventTitleInput.fill(title);
+    await this.saveEventButton.click();
+    await expect(this.page.getByText('Event created successfully!')).toBeVisible();
+  }
+
+  /**
+   * The event's title also renders as a heading in its detail panel, so once that
+   * panel is open this text appears twice - .first() is the sidebar list row.
+   */
+  eventListRow(title: string) {
+    return this.page.getByText(title, { exact: true }).first();
+  }
+
+  async openEvent(title: string) {
+    await this.eventListRow(title).click();
+  }
+
+  async closeEventDetail() {
+    await this.closeEventDetailButton.click();
+  }
+
+  async deleteEvent(title: string) {
+    await this.openEvent(title);
+    await this.deleteEventButton.click();
+    await expect(this.page.getByText('Are you sure you want to delete this event?')).toBeVisible();
+    await this.deleteEventButton.click();
+    await expect(this.page.getByText('Event deleted successfully!')).toBeVisible();
+  }
+
+  async assertEventDeleted(title: string) {
+    await expect(this.page.getByText(title, { exact: true })).toHaveCount(0);
   }
 }

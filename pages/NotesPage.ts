@@ -443,9 +443,20 @@ export class NotesPage {
    * Best-effort cleanup used in test teardown: deletes the note if it still
    * exists, silently no-op otherwise. Keeps the shared staging account tidy
    * across repeated suite runs.
+   *
+   * Uses a short waitFor rather than a bare isVisible() snapshot -- an
+   * instant check can catch the list mid-render right after a save and read
+   * "not there" for a note that's about to appear, silently skipping its
+   * cleanup and leaking it into later tests (the same class of race fixed in
+   * the "most-recent-first order" test).
    */
   async deleteNoteIfExists(title: string) {
-    if (await this.noteCardTitle(title).isVisible().catch(() => false)) {
+    const exists = await this.noteCardTitle(title)
+      .waitFor({ state: 'visible', timeout: LIST_REFRESH_SETTLE_MS + 1000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (exists) {
       await this.deleteNote(title);
     }
   }

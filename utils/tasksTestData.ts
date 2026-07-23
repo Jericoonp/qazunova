@@ -6,10 +6,11 @@ export const UPDATED_TASK_TITLE = 'Updated Automation Test Task';
 export const UPDATED_TASK_DESCRIPTION = 'This task has been updated automatically.';
 
 // Deliberately does NOT start with "Automation Test Task" (TASK_TITLE's
-// prefix) -- TasksPage's bulk cleanup (deleteAllTasksAndLists) filters
-// leftover rows by title prefix, and a shared prefix between the two would
-// make a task list row match the task-cleanup filter (and vice versa),
-// each expecting the other entity's DOM shape.
+// prefix) -- purely to keep the two entity types visually distinguishable
+// in the UI/test output. TasksPage's bulk cleanup (deleteAllTasksAndLists)
+// is unscoped (deletes everything, like NotesPage's deleteAllNotes()), so
+// it no longer depends on this distinction the way an earlier, title-scoped
+// version of that method did.
 export const TASK_LIST_TITLE = 'Automation Test List';
 export const TASK_LIST_DESCRIPTION = 'This task list was created automatically by Playwright MCP.';
 

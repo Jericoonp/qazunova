@@ -548,19 +548,58 @@ export class TasksPage {
   // ---------------------------------------------------------------------
 
   /**
-   * Best-effort wipe of any leftover Automation-prefixed Tasks and Task
-   * Lists from a prior interrupted run. Scoped to "Automation Test" titles
-   * only (never a blind delete-everything) since this is a shared staging
-   * account also used by other suites (Notes, Pulse). Lists are cleared
-   * first: TASK_LIST_TITLE ("Automation Test List") is not a prefix of
-   * TASK_TITLE ("Automation Test Task") or vice versa, so the two loops
-   * below never fight over the same row.
+   * Waits for the view to resolve to either "has at least one item" or
+   * "empty" rather than trusting a single point-in-time locator count()
+   * right after navigating in -- the exact race NotesPage.ts's
+   * listHasNotesSettled() documents and fixes for Notes. Confirmed live
+   * here too: deleteAllTasksAndLists()'s first count() check, called right
+   * after open() in beforeEach, read 0 (no Task List rows, no Task "Open"
+   * pills) even though the account genuinely had a leftover list and task
+   * on screen a moment later -- assertTasksPageLoaded() only waits for the
+   * page shell (the "Add Task" button), not the list content underneath
+   * it, which can still be mid-fetch at that point.
    */
-  async deleteAllAutomationTasksAndLists() {
+  private async waitForItemsSettled(): Promise<void> {
+    const anyListRow = this.page.locator('div[style*="cursor: pointer"]').first();
+    const anyTaskRow = this.page.getByRole('button', { name: 'Open', exact: true }).first();
+
+    await Promise.race([
+      this.emptyState.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }),
+      anyListRow.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }),
+      anyTaskRow.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }),
+    ]).catch(() => undefined);
+  }
+
+  /**
+   * Deletes every Task List and every standalone Task currently in the
+   * account, then leaves the caller on the empty-list view. Same role as
+   * NotesPage.ts's deleteAllNotes(): used both to guarantee a clean slate
+   * in beforeAll and directly inside the "empty state" test, rather than
+   * assuming the account happens to already be empty.
+   *
+   * Deliberately unscoped (no title filter) -- an earlier version of this
+   * method only matched "Automation Test ..." titles, which meant any
+   * leftover item with a different title (a prior interrupted run, manual
+   * testing, anything) silently survived cleanup and the empty-state
+   * assertion never passed. Notes/Pulse data lives on entirely separate
+   * pages from My Tasks, so deleting everything visible here can never
+   * touch their data -- the same reasoning that already makes Notes'
+   * unscoped deleteAllNotes() safe on this same shared account.
+   *
+   * Task Lists are cleared first via the reliable cursor:pointer row
+   * selector; each iteration re-queries rather than collecting locators
+   * upfront, since a delete re-renders the list. Standalone Tasks are then
+   * cleared by their row's "Open" status pill -- the one element unique to
+   * a standalone task row (Task List rows show a checkbox icon there
+   * instead), which is used to walk up to the row's title paragraph.
+   */
+  async deleteAllTasksAndLists() {
     const MAX_ITEMS_TO_DELETE = 50;
 
+    await this.waitForItemsSettled();
+
     for (let i = 0; i < MAX_ITEMS_TO_DELETE; i++) {
-      const rows = this.page.locator('div[style*="cursor: pointer"]').filter({ hasText: 'Automation Test List' });
+      const rows = this.page.locator('div[style*="cursor: pointer"]');
       if ((await rows.count()) === 0) {
         break;
       }
@@ -572,12 +611,24 @@ export class TasksPage {
     }
 
     for (let i = 0; i < MAX_ITEMS_TO_DELETE; i++) {
-      const row = this.page.getByText(/^Automation Test Task\b/).first();
-      const exists = await row.isVisible().catch(() => false);
+      const openPill = this.page.getByRole('button', { name: 'Open', exact: true }).first();
+      const exists = await openPill.isVisible().catch(() => false);
       if (!exists) {
         break;
       }
-      const title = (await row.textContent())?.trim();
+
+      const title = await openPill.evaluate((el) => {
+        let node = el.parentElement;
+        while (node) {
+          const text = node.querySelector('p')?.textContent?.trim();
+          if (text) {
+            return text;
+          }
+          node = node.parentElement;
+        }
+        return null;
+      });
+
       if (!title) {
         break;
       }

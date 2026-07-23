@@ -60,7 +60,7 @@ test.describe('My Tasks module automation', () => {
 
     const cleanupTasksPage = new TasksPage(page);
     await cleanupTasksPage.open();
-    await cleanupTasksPage.deleteAllAutomationTasksAndLists();
+    await cleanupTasksPage.deleteAllTasksAndLists();
 
     await context.close();
   });
@@ -225,7 +225,7 @@ test.describe('My Tasks module automation', () => {
        * already happens to be empty when this test runs.
        */
       test('empty state is displayed when no tasks or task lists exist', async () => {
-        await tasksPage.deleteAllAutomationTasksAndLists();
+        await tasksPage.deleteAllTasksAndLists();
 
         await expect(tasksPage.emptyState).toBeVisible({ timeout: 15000 });
         await expect(tasksPage.emptyStateTaskCard).toBeVisible({ timeout: 15000 });

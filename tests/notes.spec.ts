@@ -295,12 +295,18 @@ test.describe('Notes module automation', () => {
       await notesPage.createNote(firstTitle, NOTE_CONTENT);
       await notesPage.createNote(secondTitle, NOTE_CONTENT);
 
-      const titles = await notesPage.page.getByText(/Automation Test Note (First|Second)/).allTextContents();
-      const firstIndex = titles.findIndex((t) => t.includes('Second'));
-      const secondIndex = titles.findIndex((t) => t.includes('First'));
+      // allTextContents() is a one-shot DOM snapshot -- it does not wait for
+      // the list to finish re-rendering after the second create like every
+      // other read in this file does. Poll instead of reading once, so a
+      // still-settling list doesn't read as "Second is missing".
+      await expect(async () => {
+        const titles = await notesPage.page.getByText(/Automation Test Note (First|Second)/).allTextContents();
+        const firstIndex = titles.findIndex((t) => t.includes('Second'));
+        const secondIndex = titles.findIndex((t) => t.includes('First'));
 
-      expect(firstIndex).toBeGreaterThanOrEqual(0);
-      expect(secondIndex).toBeGreaterThan(firstIndex);
+        expect(firstIndex).toBeGreaterThanOrEqual(0);
+        expect(secondIndex).toBeGreaterThan(firstIndex);
+      }).toPass({ timeout: 15000 });
     });
   });
 

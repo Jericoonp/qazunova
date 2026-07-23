@@ -13,7 +13,13 @@ on:
 
 jobs:
   test:
-    timeout-minutes: 30
+    # Bumped from 30: the suite now runs 67 tests/browser (was ~35) with the
+    # addition of tasks.spec.ts (32 tests, each paying its own full
+    # login+onboarding cost against a slow staging backend -- see that
+    # file's header comment). A live chromium run of just tasks.spec.ts
+    # alone took ~33 minutes; 30 minutes total was already tight for the
+    # rest of the suite (notes/login/dashboard/pulse) before this addition.
+    timeout-minutes: 90
     runs-on: ubuntu-latest
     strategy:
       # One browser's failure shouldn't cancel the other two mid-run.

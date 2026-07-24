@@ -12,7 +12,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  notify-start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Automation Logs – Tests started
+        env:
+          ZUNOU_WEBHOOK_URL: ${{ secrets.ZUNOU_WEBHOOK_URL }}
+        run: |
+          [ -z "$ZUNOU_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$ZUNOU_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"▶ Playwright tests **started** — trigger: \`${{ github.event_name }}\`, run: [#${{ github.run_number }}](https://github.com/Jericoonp/qazunova/actions/runs/${{ github.run_id }})\"}" \
+            || true
+
   test:
+    needs: notify-start
     # Bumped from 30: the suite now runs 67 tests/browser (was ~35) with the
     # addition of tasks.spec.ts (32 tests, each paying its own full
     # login+onboarding cost against a slow staging backend -- see that
@@ -64,3 +78,20 @@ jobs:
           path: test-results/
           retention-days: 30
           if-no-files-found: ignore
+
+  notify-result:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Automation Logs – Tests completed
+        env:
+          ZUNOU_WEBHOOK_URL: ${{ secrets.ZUNOU_WEBHOOK_URL }}
+          RESULT: ${{ needs.test.result }}
+        run: |
+          [ -z "$ZUNOU_WEBHOOK_URL" ] && exit 0
+          if [ "$RESULT" = "success" ]; then ICON="✅"; else ICON="❌"; fi
+          curl -s -X POST "$ZUNOU_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"${ICON} Playwright tests **${RESULT}** (chromium · firefox · webkit) — trigger: \`${{ github.event_name }}\`, run: [#${{ github.run_number }}](https://github.com/Jericoonp/qazunova/actions/runs/${{ github.run_id }})\"}" \
+            || true

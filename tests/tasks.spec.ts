@@ -79,6 +79,13 @@ test.describe('My Tasks module automation', () => {
   });
 
   test.afterEach(async ({ page }, testInfo) => {
+    // Cleanup gets its own budget on top of the test's own -- see
+    // notes.spec.ts's afterEach for the full rationale. It matters more here:
+    // this teardown drains TWO collections (task lists, then tasks), and it
+    // was a test in this file that blew the shared 90s limit inside afterEach
+    // on run 30323518312 and cascaded into the beforeAll retry failures.
+    testInfo.setTimeout(testInfo.timeout + 45000);
+
     // Same "reload back to a clean view before cleanup" reasoning as
     // notes.spec.ts's afterEach -- a stuck panel/dialog left open in an
     // invalid state should not be allowed to block cleanup.

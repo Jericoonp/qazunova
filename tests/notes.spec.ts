@@ -89,6 +89,19 @@ test.describe('Notes module automation', () => {
   });
 
   test.afterEach(async ({ page }, testInfo) => {
+    // Cleanup gets its own budget on top of the test's own. Playwright charges
+    // afterEach against the SAME timeout as the test body, so a slow-but-
+    // passing test followed by a multi-note teardown can blow the limit and
+    // be reported as a failure even though every assertion passed.
+    //
+    // That is exactly what broke the webkit shard on run 30323518312: "Test
+    // timeout of 90000ms exceeded while running afterEach hook", which then
+    // cascaded -- each retry re-ran beforeAll, timed out there too, and took
+    // 6 unrelated tests down with it (~12 minutes total). The teardown below
+    // is inherently variable: it reloads, then deletes one note per created
+    // title, each with its own dialog round-trip and settle delay.
+    testInfo.setTimeout(testInfo.timeout + 45000);
+
     // If the test failed while a note dialog was open in an invalid state
     // (e.g. an empty title), the dialog blocks both Escape and a backdrop
     // click -- it won't close until the field is valid again. Rather than

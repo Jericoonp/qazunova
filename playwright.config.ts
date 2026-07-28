@@ -14,8 +14,14 @@ export default defineConfig({
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  /* Retry on CI only.
+   * Dropped from 2 to 1: on run 30323518312 the webkit shard spent ~12 of its
+   * 60 minutes on a single failing tasks test. Each retry re-ran that file's
+   * beforeAll, which burned its full 300s hook timeout before failing --
+   * producing two 0ms "retries" that never had a chance to pass and taking 6
+   * unrelated tests down with them. On a suite where every test costs 20-40s,
+   * a second retry buys very little and costs a lot when a file is broken. */
+  retries: process.env.CI ? 1 : 0,
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */

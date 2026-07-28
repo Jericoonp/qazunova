@@ -25,7 +25,19 @@ jobs:
       # One browser's failure shouldn't cancel the other two mid-run.
       fail-fast: false
       matrix:
-        project: [chromium, firefox, webkit]
+        # Cross-browser coverage runs on the schedule (and on demand), not on
+        # every push/PR. Measured on run 30323518312: chromium finished in
+        # 37min and firefox in 39min, while webkit took 61min -- and since the
+        # three shards run in parallel, every PR waited on webkit. Restricting
+        # push/PR to chromium cuts that feedback loop to ~37min while the
+        # 6-hourly schedule below still exercises all three browsers 4x a day.
+        #
+        # Worth revisiting with evidence: across all three shards on that run,
+        # firefox and webkit surfaced no product bug chromium missed (webkit's
+        # 2 failures were teardown/timeout artifacts, not engine behaviour).
+        # Kept anyway for now because the Notes/Tasks editors are Quill, and
+        # contenteditable is one of the areas WebKit genuinely diverges on.
+        project: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && fromJSON('["chromium"]') || fromJSON('["chromium","firefox","webkit"]') }}
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}
       # Each browser shard authenticates as its own dedicated staging

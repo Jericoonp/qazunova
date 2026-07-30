@@ -473,6 +473,50 @@ export class TasksPage {
     return this.taskListRow(title).locator('button:has(svg[data-testid="DeleteOutlinedIcon"])');
   }
 
+  /**
+   * Clicks a Task List row action (Edit/Delete) with the floating "Add" button
+   * temporarily taken out of the hit-test.
+   *
+   * The Fab is fixed to the bottom-right of the viewport, so whenever the list
+   * happens to end near the bottom of the screen it sits directly on top of the
+   * LAST row's Edit/Delete icons. Playwright then reports
+   * `... MuiFab-root ... subtree intercepts pointer events` and retries the
+   * click until the enclosing hook's budget is gone. Measured on run
+   * 30343800657: 515 retries inside deleteAllTasksAndLists() burned webkit's
+   * whole 300s beforeAll and left 31 of 68 tests unrun.
+   *
+   * Neither obvious remedy works here:
+   *  - scrollIntoViewIfNeeded() is a no-op -- the row IS in view, just covered.
+   *  - scrolling the row upward needs scroll room the list often doesn't have
+   *    (the overlap happens precisely when the content ends at the fold).
+   *
+   * So drop pointer events on the Fab for the duration of the click and restore
+   * them afterwards. This is a WORKAROUND, not a cover-up: the overlap is a
+   * genuine UX defect for real users too -- the Fab really does cover the last
+   * row's controls -- and is logged separately. Neutralising it here only stops
+   * one product defect from taking the entire suite down with it.
+   */
+  private async clickTaskListRowAction(target: Locator) {
+    const setFabPointerEvents = (value: string) =>
+      this.page
+        .locator('.MuiFab-root')
+        .evaluateAll((els, v) => {
+          els.forEach((el) => {
+            (el as HTMLElement).style.pointerEvents = v;
+          });
+        }, value)
+        .catch(() => {
+          /* No Fab on screen -- nothing to neutralise, click normally. */
+        });
+
+    await setFabPointerEvents('none');
+    try {
+      await target.click();
+    } finally {
+      await setFabPointerEvents('');
+    }
+  }
+
   async assertTaskListVisible(title: string) {
     await expect(this.taskListRow(title)).toBeVisible();
   }
@@ -489,7 +533,7 @@ export class TasksPage {
    * made through this same edit-mode entry point.
    */
   async renameTaskList(existingTitle: string, newTitle: string) {
-    await this.taskListEditButton(existingTitle).click();
+    await this.clickTaskListRowAction(this.taskListEditButton(existingTitle));
     await expect(this.panelDialogTitleInput).toBeVisible({ timeout: PANEL_LOAD_TIMEOUT_MS });
 
     await this.clearField(this.panelDialogTitleInput);
@@ -507,7 +551,7 @@ export class TasksPage {
   }
 
   async openTaskListTitleForEdit(title: string) {
-    await this.taskListEditButton(title).click();
+    await this.clickTaskListRowAction(this.taskListEditButton(title));
     await expect(this.panelDialogTitleInput).toBeVisible({ timeout: PANEL_LOAD_TIMEOUT_MS });
   }
 
@@ -517,7 +561,7 @@ export class TasksPage {
 
   /** Deletes a Task List via its row's own Delete icon and confirmation dialog. */
   async deleteTaskList(title: string) {
-    await this.taskListDeleteButton(title).click();
+    await this.clickTaskListRowAction(this.taskListDeleteButton(title));
     await expect(this.deleteTaskListHeading).toBeVisible({ timeout: PANEL_LOAD_TIMEOUT_MS });
     await this.deleteTaskListConfirmButton.click();
     await expect(this.deleteTaskListHeading).toHaveCount(0, { timeout: SAVE_ROUNDTRIP_TIMEOUT_MS });
@@ -525,7 +569,7 @@ export class TasksPage {
   }
 
   async deleteTaskListThenCancel(title: string) {
-    await this.taskListDeleteButton(title).click();
+    await this.clickTaskListRowAction(this.taskListDeleteButton(title));
     await expect(this.deleteTaskListHeading).toBeVisible({ timeout: PANEL_LOAD_TIMEOUT_MS });
     await this.deleteTaskListCancelButton.click();
     await expect(this.deleteTaskListHeading).toHaveCount(0);

@@ -60,6 +60,10 @@ export class PulsePage {
     await this.channelNameInput.fill(name);
     await this.nextButton.click();
     await this.skipAddMembersButton.click();
+    // Wait for the new channel's header to appear — the creation flow navigates
+    // asynchronously, and the default expect timeout (5s) is too short under
+    // parallel staging load.
+    await this.pulseHeaderButton(name).waitFor({ state: 'visible' });
   }
 
   async sendMessage(text: string) {

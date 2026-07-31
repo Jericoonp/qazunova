@@ -34,10 +34,11 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
 
-  /* Chromium only.
+  /* Chromium is the DEFAULT; firefox and webkit are OPT-IN.
    *
-   * Cross-browser coverage is off by request (Earl Dominic, 2026-07-31): every
-   * run fanned out into three parallel browser shards, and the extra two paid
+   * Automatic cross-browser fan-out is off by request (Earl Dominic,
+   * 2026-07-31): every run fanned out into three parallel browser shards,
+   * and the extra two paid
    * for themselves in noise rather than defects. Evidence from run
    * 30323518312, where all three shards ran the same suite: firefox and webkit
    * surfaced no product bug chromium missed, and webkit's only two failures
@@ -45,15 +46,34 @@ export default defineConfig({
    * chromium's 37min, so every run waited on the slowest, least informative
    * shard.
    *
-   * To restore a browser, re-add its project block here AND to the matrix in
-   * .github/workflows/playwright.yml -- both must change together. The one
-   * area with real cross-engine risk is the Quill (contenteditable) Notes and
-   * Tasks editors, so if that code changes materially, a one-off webkit run is
-   * worth doing by hand. */
+   * These project blocks are DEFINED but never selected by default -- every
+   * caller passes --project explicitly, and scheduled/push/PR runs pass
+   * --project=chromium. Defining them costs nothing and means a one-off
+   * cross-browser check needs no code change: run the workflow manually with
+   * the `browsers` input (see .github/workflows/playwright.yml), or locally
+   * with `npx playwright test --project=webkit`.
+   *
+   * NOTE: firefox and webkit each need their OWN staging account, or they
+   * corrupt each other's data (notes.spec.ts bulk-clears its account in
+   * beforeAll). The workflow wires LOGIN_TEST_USER_FIREFOX / _WEBKIT for
+   * exactly that reason -- never run two browsers against one account.
+   *
+   * The one area with real cross-engine risk is the Quill (contenteditable)
+   * Notes and Tasks editors, so if that code changes materially, a one-off
+   * webkit run is worth doing by hand. */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      // Safari's engine -- "Safari" and "webkit" are the same target here.
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
     },
 
     /* Test against mobile viewports. */

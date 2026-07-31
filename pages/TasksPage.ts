@@ -34,6 +34,16 @@ const DELETE_PERSIST_SETTLE_MS = 1500;
  */
 const EMPTY_LIST_RENDER_RELOAD_MS = 1000;
 
+/**
+ * Marks an element whose inline pointer-events we have temporarily overridden
+ * so a covered control can be clicked. The attribute stores the ORIGINAL
+ * inline value so it can be put back verbatim. See clickTaskListRowAction().
+ */
+const OVERLAY_NEUTRALISED_ATTR = 'data-qa-overlay-neutralised';
+
+/** Safety bound on how many stacked overlays we will peel off one control. */
+const MAX_STACKED_OVERLAYS = 10;
+
 export class TasksPage {
   readonly page: Page;
 
@@ -474,13 +484,13 @@ export class TasksPage {
   }
 
   /**
-   * Clicks a Task List row action (Edit/Delete) with the floating "Add" button
-   * temporarily taken out of the hit-test.
+   * Clicks a Task List row action (Edit/Delete) with whatever is floating on
+   * top of it temporarily taken out of the hit-test.
    *
-   * The Fab is fixed to the bottom-right of the viewport, so whenever the list
-   * happens to end near the bottom of the screen it sits directly on top of the
-   * LAST row's Edit/Delete icons. Playwright then reports
-   * `... MuiFab-root ... subtree intercepts pointer events` and retries the
+   * The bottom-right corner of the viewport is shared by several fixed-position
+   * widgets, so whenever the list happens to end near the bottom of the screen
+   * one of them sits directly on top of the LAST row's Edit/Delete icons.
+   * Playwright then reports `... intercepts pointer events` and retries the
    * click until the enclosing hook's budget is gone. Measured on run
    * 30343800657: 515 retries inside deleteAllTasksAndLists() burned webkit's
    * whole 300s beforeAll and left 31 of 68 tests unrun.
@@ -490,30 +500,73 @@ export class TasksPage {
    *  - scrolling the row upward needs scroll room the list often doesn't have
    *    (the overlap happens precisely when the content ends at the fold).
    *
-   * So drop pointer events on the Fab for the duration of the click and restore
-   * them afterwards. This is a WORKAROUND, not a cover-up: the overlap is a
-   * genuine UX defect for real users too -- the Fab really does cover the last
-   * row's controls -- and is logged separately. Neutralising it here only stops
-   * one product defect from taking the entire suite down with it.
+   * Naming the coverer does not work either. The first version of this helper
+   * neutralised `.MuiFab-root` because that was what the run-30343800657 log
+   * blamed. Run 30601659605 then failed the same way at the same line, this
+   * time blaming `div.MuiBox-root.css-11buxl1` -- the Zunou assistant launcher,
+   * a different widget parked in the same corner. Any fix keyed to a selector
+   * is one new floating widget away from failing again, and each failure costs
+   * a whole beforeAll.
+   *
+   * So ask the browser what is actually on top of the button and peel that off
+   * instead: hit-test the button's centre, drop pointer events on whatever
+   * comes back, repeat for stacked layers, then restore everything afterwards.
+   *
+   * This is a WORKAROUND, not a cover-up: the overlap is a genuine UX defect
+   * for real users too -- these widgets really do cover the last row's controls
+   * -- and is logged separately. Neutralising it here only stops one product
+   * defect from taking the entire suite down with it.
    */
   private async clickTaskListRowAction(target: Locator) {
-    const setFabPointerEvents = (value: string) =>
-      this.page
-        .locator('.MuiFab-root')
-        .evaluateAll((els, v) => {
-          els.forEach((el) => {
-            (el as HTMLElement).style.pointerEvents = v;
-          });
-        }, value)
+    const neutraliseCoveringElements = () =>
+      target
+        .evaluate((el, { attr, maxLayers }) => {
+          const rect = el.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+
+          // Bounded: a mis-hit must never spin here forever.
+          for (let layer = 0; layer < maxLayers; layer++) {
+            const hit = document.elementFromPoint(x, y);
+
+            // Nothing on top, we hit the button itself, or we hit one of its
+            // own descendants (the icon) -- either way it is clickable now.
+            if (!hit || hit === el || el.contains(hit)) return;
+
+            // An ANCESTOR came back rather than an overlay. Disabling pointer
+            // events there would disable the button too, so stop and let
+            // Playwright's own actionability check report the real problem.
+            if (hit.contains(el)) return;
+
+            const covering = hit as HTMLElement;
+            covering.setAttribute(attr, covering.style.pointerEvents);
+            covering.style.pointerEvents = 'none';
+          }
+        }, { attr: OVERLAY_NEUTRALISED_ATTR, maxLayers: MAX_STACKED_OVERLAYS })
         .catch(() => {
-          /* No Fab on screen -- nothing to neutralise, click normally. */
+          /* Nothing to neutralise -- click normally. */
         });
 
-    await setFabPointerEvents('none');
+    const restoreCoveringElements = () =>
+      this.page
+        .locator(`[${OVERLAY_NEUTRALISED_ATTR}]`)
+        .evaluateAll((els, attr) => {
+          els.forEach((node) => {
+            const el = node as HTMLElement;
+            // Put back whatever inline value was there before, including none.
+            el.style.pointerEvents = el.getAttribute(attr) ?? '';
+            el.removeAttribute(attr);
+          });
+        }, OVERLAY_NEUTRALISED_ATTR)
+        .catch(() => {
+          /* Page already gone -- nothing left to restore. */
+        });
+
+    await neutraliseCoveringElements();
     try {
       await target.click();
     } finally {
-      await setFabPointerEvents('');
+      await restoreCoveringElements();
     }
   }
 

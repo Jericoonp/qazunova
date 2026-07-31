@@ -10,6 +10,18 @@ on:
     - cron: '0 0,6,12,18 * * *'
   # Allow manual, on-demand runs from the Actions tab.
   workflow_dispatch:
+    inputs:
+      browsers:
+        description: 'Browser(s) to run. Automatic runs are always chromium only; this is for one-off cross-engine checks.'
+        type: choice
+        required: false
+        default: chromium
+        options:
+          - chromium
+          - firefox
+          - webkit
+          - firefox+webkit
+          - all
 
 jobs:
   test:
@@ -19,30 +31,50 @@ jobs:
     # file's header comment). A live chromium run of just tasks.spec.ts
     # alone took ~33 minutes; 30 minutes total was already tight for the
     # rest of the suite (notes/login/dashboard/pulse) before this addition.
+    # webkit is the slowest engine here at ~61min, hence the headroom.
     timeout-minutes: 90
     runs-on: ubuntu-latest
-    # Chromium only -- the browser matrix was removed by request (Earl Dominic,
-    # 2026-07-31). Runs no longer fan out into three parallel browser shards.
-    #
-    # The evidence backs it: on run 30323518312, where all three shards ran the
-    # same suite, firefox and webkit surfaced no product bug chromium missed
-    # (webkit's 2 failures were teardown/timeout artifacts, not engine
-    # behaviour), while webkit took 61min against chromium's 37min. Every run
-    # waited on the slowest, least informative shard.
-    #
-    # To restore a browser, add a strategy.matrix back here AND its project
-    # block in playwright.config.ts -- both must change together, and it needs
-    # its own dedicated staging account (see LOGIN_TEST_USER below).
+    strategy:
+      # One browser failing must not cancel the others -- the whole point of a
+      # cross-engine run is to see ALL the engines' results, especially when
+      # one of them is red.
+      fail-fast: false
+      # Automatic triggers (push / pull_request / schedule) carry no inputs, so
+      # this collapses to chromium alone -- the browser matrix was removed from
+      # automatic runs by request (Earl Dominic, 2026-07-31).
+      #
+      # The evidence backed that: on run 30323518312, where all three shards
+      # ran the same suite, firefox and webkit surfaced no product bug chromium
+      # missed (webkit's 2 failures were teardown/timeout artifacts, not engine
+      # behaviour), while webkit took 61min against chromium's 37min. Every run
+      # waited on the slowest, least informative shard.
+      #
+      # What that trade-off costs, and why this input exists: chromium-only CI
+      # cannot see a firefox/webkit-only defect AT ALL. TM2-T003 (notes
+      # clear-title) is exactly that shape -- in run 30574845877 it failed ONLY
+      # on firefox and webkit, so chromium-only CI reports green while the bug
+      # is still live. Use workflow_dispatch with this input to check the other
+      # engines deliberately, instead of paying for a permanent 3x fan-out.
+      matrix:
+        browser: ${{ fromJSON(
+          inputs.browsers == 'all' && '["chromium","firefox","webkit"]'
+          || inputs.browsers == 'firefox+webkit' && '["firefox","webkit"]'
+          || inputs.browsers == 'firefox' && '["firefox"]'
+          || inputs.browsers == 'webkit' && '["webkit"]'
+          || '["chromium"]') }}
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}
-      # Shards used to authenticate as one dedicated staging account each, so
-      # they never mutated each other's data (notes.spec.ts bulk-clears its
-      # account's notes in beforeAll). With a single chromium job there is
-      # nothing to race, so the per-browser accounts are no longer wired up --
-      # the LOGIN_TEST_USER_FIREFOX / _WEBKIT secrets still exist in the repo
-      # if a shard is ever restored.
-      LOGIN_TEST_USER: ${{ secrets.LOGIN_TEST_USER }}
-      LOGIN_TEST_PASSWORD: ${{ secrets.LOGIN_TEST_PASSWORD }}
+      # Each browser authenticates as its OWN dedicated staging account, so
+      # concurrent shards never mutate each other's data (notes.spec.ts and
+      # tasks.spec.ts bulk-clear their account in beforeAll -- two browsers
+      # sharing one account would wipe each other's fixtures mid-run).
+      #
+      # This matters OUTSIDE CI too: LOGIN_TEST_USER is the same staging
+      # account used for manual browser QA, so a manual session and an
+      # in-flight chromium run corrupt each other. Check `gh run list` before
+      # doing manual QA against staging.
+      LOGIN_TEST_USER: ${{ matrix.browser == 'firefox' && secrets.LOGIN_TEST_USER_FIREFOX || matrix.browser == 'webkit' && secrets.LOGIN_TEST_USER_WEBKIT || secrets.LOGIN_TEST_USER }}
+      LOGIN_TEST_PASSWORD: ${{ matrix.browser == 'firefox' && secrets.LOGIN_TEST_PASSWORD_FIREFOX || matrix.browser == 'webkit' && secrets.LOGIN_TEST_PASSWORD_WEBKIT || secrets.LOGIN_TEST_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,17 +82,17 @@ jobs:
           node-version: lts/*
       - name: Install dependencies
         run: npm ci
-      - name: Install Playwright Browser (chromium)
-        run: npx playwright install --with-deps chromium
+      - name: Install Playwright Browser (${{ matrix.browser }})
+        run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run Playwright tests
-        run: npx playwright test --project=chromium
+        run: npx playwright test --project=${{ matrix.browser }}
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-chromium
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 30
       - name: Upload failure screenshots & videos
@@ -69,7 +101,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results-chromium
+          name: playwright-test-results-${{ matrix.browser }}
           path: test-results/
           retention-days: 30
           if-no-files-found: ignore

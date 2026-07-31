@@ -1,6 +1,6 @@
 import path from 'path';
-import { expect, test } from '@playwright/test';
-import { DEFAULT_LOGIN_URL, VALID_PASSWORD, VALID_USERNAME } from '../credentials/loginCredentials';
+import { expect, test } from '../utils/testFixtures';
+import { DEFAULT_LOGIN_URL } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 import { NotesPage } from '../pages/NotesPage';
 import {
@@ -19,14 +19,23 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
 }
 
 /**
- * IMPORTANT: every test in this file reads/writes the Notes list of the
- * SAME shared staging account. Playwright's default config runs tests in
- * this file across multiple parallel workers, and since they all mutate
- * one shared server-side list, that causes cross-test collisions (e.g. the
- * empty-state test observing a note another worker just created) that show
- * up as flaky, non-deterministic failures. Always run this file with a
- * single worker: `npm run test:notes` (which passes --workers=1) or
- * `npx playwright test tests/notes.spec.ts --workers=1`.
+ * IMPORTANT: every test in this file reads/writes the Notes list of ONE
+ * staging account, and some mutate it wholesale -- the beforeAll clears it,
+ * and the empty-state test asserts the list is empty. Tests sharing an
+ * account would therefore collide (the empty-state test observing a note
+ * another worker just created), which is why this file used to demand
+ * `--workers=1`.
+ *
+ * It no longer does. Each WORKER now owns its own staging account, supplied
+ * by the `account` fixture (utils/testFixtures.ts), and Playwright runs one
+ * test at a time per worker -- so the "one account, one thing happening to it
+ * at a time" guarantee these tests rely on still holds while the suite as a
+ * whole runs in parallel. playwright.config.ts caps the worker count at the
+ * number of accounts configured, so this cannot be defeated by passing a
+ * bigger --workers.
+ *
+ * The rule that survives: never hard-code VALID_USERNAME / VALID_PASSWORD in
+ * this file. Always sign in as `account`.
  */
 test.use({ video: 'off', trace: 'off' });
 
@@ -48,7 +57,7 @@ test.describe('Notes module automation', () => {
   // them up, keeping the shared staging account free of leftover data.
   let createdTitles: string[];
 
-  test.beforeAll(async ({ browser }) => {
+  test.beforeAll(async ({ browser, account }) => {
     // Bulk-deleting an unknown number of leftover notes (e.g. from a prior
     // interrupted run) does not reliably fit in a single test's 90s budget
     // -- confirmed live: with 20 leftover notes in the shared account, the
@@ -64,7 +73,7 @@ test.describe('Notes module automation', () => {
 
     const loginPage = new LoginPage(page);
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
     await loginPage.assertLoginSuccess();
 
     const cleanupNotesPage = new NotesPage(page);
@@ -74,13 +83,13 @@ test.describe('Notes module automation', () => {
     await context.close();
   });
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, account }) => {
     createdTitles = [];
 
     // Reuse the existing login page object/fixture data instead of duplicating auth logic.
     const loginPage = new LoginPage(page);
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
     await loginPage.assertLoginSuccess();
 
     // Enter the workspace and land on the Notes section via the sidebar.

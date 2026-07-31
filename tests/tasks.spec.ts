@@ -1,6 +1,6 @@
 import path from 'path';
-import { expect, test } from '@playwright/test';
-import { DEFAULT_LOGIN_URL, VALID_PASSWORD, VALID_USERNAME } from '../credentials/loginCredentials';
+import { expect, test } from '../utils/testFixtures';
+import { DEFAULT_LOGIN_URL } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 import { TasksPage } from '../pages/TasksPage';
 import {
@@ -23,11 +23,12 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
 }
 
 /**
- * IMPORTANT: every test in this file reads/writes the Task and Task List
- * data of the SAME shared staging account, the same way tests/notes.spec.ts
- * does for Notes -- see that file's header comment for the full rationale.
- * Always run this file with a single worker: `npm run test:tasks` (which
- * passes --workers=1) or `npx playwright test tests/tasks.spec.ts --workers=1`.
+ * IMPORTANT: every test in this file reads/writes the Task and Task List data
+ * of ONE staging account, the same way tests/notes.spec.ts does for Notes --
+ * see that file's header comment for the full rationale. Isolation comes from
+ * the per-worker `account` fixture (utils/testFixtures.ts), not from
+ * `--workers=1`; sign in as `account`, never as VALID_USERNAME /
+ * VALID_PASSWORD.
  */
 test.use({ video: 'off', trace: 'off' });
 
@@ -43,7 +44,7 @@ test.describe('My Tasks module automation', () => {
   let createdTaskTitles: string[];
   let createdListTitles: string[];
 
-  test.beforeAll(async ({ browser }) => {
+  test.beforeAll(async ({ browser, account }) => {
     // Same reasoning as notes.spec.ts's beforeAll: guarantee a clean slate
     // once, up front, with its own much larger timeout, rather than having
     // any single test absorb an unpredictable amount of leftover mess from
@@ -55,7 +56,7 @@ test.describe('My Tasks module automation', () => {
 
     const loginPage = new LoginPage(page);
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
     await loginPage.assertLoginSuccess();
 
     const cleanupTasksPage = new TasksPage(page);
@@ -65,13 +66,13 @@ test.describe('My Tasks module automation', () => {
     await context.close();
   });
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, account }) => {
     createdTaskTitles = [];
     createdListTitles = [];
 
     const loginPage = new LoginPage(page);
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
     await loginPage.assertLoginSuccess();
 
     tasksPage = new TasksPage(page);

@@ -6,6 +6,31 @@ import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '.env'), quiet: true });
 
 /**
+ * How many tests may safely run at once: one per isolated staging account.
+ *
+ * Deliberately a lazy require rather than a top-level import --
+ * credentials/loginCredentials.ts reads process.env as it is evaluated, and a
+ * top-level import would be hoisted ABOVE the dotenv.config() call on the
+ * line before this, so a local .env would be ignored and every run would see
+ * an empty pool.
+ */
+function resolveWorkers(): number {
+  const { ACCOUNT_POOL_SIZE } = require('./credentials/loginCredentials') as {
+    ACCOUNT_POOL_SIZE: number;
+  };
+
+  const requested = Number(process.env.PW_WORKERS);
+
+  if (Number.isInteger(requested) && requested > 0) {
+    // Clamp, never trust. PW_WORKERS above the pool size would hand one
+    // account to two workers and surface as data loss in an unrelated test.
+    return Math.min(requested, ACCOUNT_POOL_SIZE);
+  }
+
+  return ACCOUNT_POOL_SIZE;
+}
+
+/**
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
@@ -22,8 +47,27 @@ export default defineConfig({
    * unrelated tests down with them. On a suite where every test costs 20-40s,
    * a second retry buys very little and costs a lot when a file is broken. */
   retries: process.env.CI ? 1 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* One worker per isolated staging account -- never more.
+   *
+   * This used to be a flat `workers: 1` on CI, which made a run cost the SUM
+   * of its 68 tests: 42.6 min on run 30604925581, roughly 20 min of which was
+   * the same login + navigation repeated across 53 tests. The setting was
+   * never the real constraint. notes.spec.ts and tasks.spec.ts bulk-clear
+   * their account in beforeAll and several tests assert on whole-list state,
+   * so two workers sharing one staging account delete each other's fixtures
+   * mid-run.
+   *
+   * Each worker now owns its own account (credentials/loginCredentials.ts +
+   * utils/testFixtures.ts), so the safe worker count is exactly the number of
+   * accounts configured. Deriving it here instead of hard-coding a number
+   * makes that an invariant of the config: adding a LOGIN_TEST_USER_2/_3 pair
+   * is all it takes to widen a run, and an environment holding only the one
+   * account quietly falls back to the old serial behaviour rather than
+   * corrupting itself.
+   *
+   * PW_WORKERS can lower it for a one-off (e.g. to test an ordering
+   * suspicion); resolveWorkers() clamps it so it can never exceed the pool. */
+  workers: resolveWorkers(),
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [['list'], ['html']],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

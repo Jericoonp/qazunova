@@ -49,9 +49,17 @@ export class PulsePage {
     // full-page overlay sits on top of the dialog's buttons even though the
     // dialog renders visually in front of it (a real app z-index bug).
     await this.skipTourButton.click({ timeout: 20000 }).catch(() => undefined);
-    // CI runners run in UTC, which differs from the account's configured
-    // organization timezone (Asia/Manila), triggering this dialog every run.
-    await this.cancelTimezoneMismatchButton.click({ timeout: 10000 }).catch(() => undefined);
+    // Timezone mismatch dialog: it only appears AFTER the workspace has
+    // finished loading, which under parallel staging load can take 30-40 s.
+    // Cancelling before the workspace is ready is a no-op — the dialog doesn't
+    // exist yet — so we sync to the Home button first, then dismiss. On a fast
+    // account this costs nothing; on a slow one it prevents the dialog staying
+    // open and blocking the sidebar Add Pulse button for the rest of the test.
+    await this.page
+      .getByRole('button', { name: 'Home', exact: true })
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .catch(() => undefined);
+    await this.cancelTimezoneMismatchButton.click({ timeout: 5000 }).catch(() => undefined);
   }
 
   async createTeamChannel(name: string) {

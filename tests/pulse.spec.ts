@@ -28,7 +28,12 @@ test.describe('Pulse (team channel) lifecycle', () => {
     });
   });
 
-  test('create a team channel pulse, message in it, rename it, then delete it', async ({ page, account }) => {
+  test('create a team channel pulse, message in it, rename it, then delete it', async ({ page, account }, testInfo) => {
+    // Extra budget for parallel staging load: dismissOnboardingIfPresent() now
+    // waits up to 20 s for the workspace Home button before cancelling the
+    // timezone dialog, which can push the setup phase past 90 s on a slow server.
+    testInfo.setTimeout(testInfo.timeout + 60000);
+
     const loginPage = new LoginPage(page);
     const pulsePage = new PulsePage(page);
 

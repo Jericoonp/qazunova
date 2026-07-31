@@ -34,21 +34,26 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
 
-  /* Configure projects for major browsers */
+  /* Chromium only.
+   *
+   * Cross-browser coverage is off by request (Earl Dominic, 2026-07-31): every
+   * run fanned out into three parallel browser shards, and the extra two paid
+   * for themselves in noise rather than defects. Evidence from run
+   * 30323518312, where all three shards ran the same suite: firefox and webkit
+   * surfaced no product bug chromium missed, and webkit's only two failures
+   * were teardown/timeout artifacts. Meanwhile webkit took 61min against
+   * chromium's 37min, so every run waited on the slowest, least informative
+   * shard.
+   *
+   * To restore a browser, re-add its project block here AND to the matrix in
+   * .github/workflows/playwright.yml -- both must change together. The one
+   * area with real cross-engine risk is the Quill (contenteditable) Notes and
+   * Tasks editors, so if that code changes materially, a one-off webkit run is
+   * worth doing by hand. */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
     },
 
     /* Test against mobile viewports. */

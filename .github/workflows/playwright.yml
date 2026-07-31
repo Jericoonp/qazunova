@@ -21,31 +21,28 @@ jobs:
     # rest of the suite (notes/login/dashboard/pulse) before this addition.
     timeout-minutes: 90
     runs-on: ubuntu-latest
-    strategy:
-      # One browser's failure shouldn't cancel the other two mid-run.
-      fail-fast: false
-      matrix:
-        # Cross-browser coverage runs on the schedule (and on demand), not on
-        # every push/PR. Measured on run 30323518312: chromium finished in
-        # 37min and firefox in 39min, while webkit took 61min -- and since the
-        # three shards run in parallel, every PR waited on webkit. Restricting
-        # push/PR to chromium cuts that feedback loop to ~37min while the
-        # 6-hourly schedule below still exercises all three browsers 4x a day.
-        #
-        # Worth revisiting with evidence: across all three shards on that run,
-        # firefox and webkit surfaced no product bug chromium missed (webkit's
-        # 2 failures were teardown/timeout artifacts, not engine behaviour).
-        # Kept anyway for now because the Notes/Tasks editors are Quill, and
-        # contenteditable is one of the areas WebKit genuinely diverges on.
-        project: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && fromJSON('["chromium"]') || fromJSON('["chromium","firefox","webkit"]') }}
+    # Chromium only -- the browser matrix was removed by request (Earl Dominic,
+    # 2026-07-31). Runs no longer fan out into three parallel browser shards.
+    #
+    # The evidence backs it: on run 30323518312, where all three shards ran the
+    # same suite, firefox and webkit surfaced no product bug chromium missed
+    # (webkit's 2 failures were teardown/timeout artifacts, not engine
+    # behaviour), while webkit took 61min against chromium's 37min. Every run
+    # waited on the slowest, least informative shard.
+    #
+    # To restore a browser, add a strategy.matrix back here AND its project
+    # block in playwright.config.ts -- both must change together, and it needs
+    # its own dedicated staging account (see LOGIN_TEST_USER below).
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}
-      # Each browser shard authenticates as its own dedicated staging
-      # account so parallel shards never mutate each other's data (notes.spec.ts
-      # bulk-clears its account's notes in beforeAll, which otherwise races
-      # across concurrently-running shards on a shared account).
-      LOGIN_TEST_USER: ${{ matrix.project == 'firefox' && secrets.LOGIN_TEST_USER_FIREFOX || matrix.project == 'webkit' && secrets.LOGIN_TEST_USER_WEBKIT || secrets.LOGIN_TEST_USER }}
-      LOGIN_TEST_PASSWORD: ${{ matrix.project == 'firefox' && secrets.LOGIN_TEST_PASSWORD_FIREFOX || matrix.project == 'webkit' && secrets.LOGIN_TEST_PASSWORD_WEBKIT || secrets.LOGIN_TEST_PASSWORD }}
+      # Shards used to authenticate as one dedicated staging account each, so
+      # they never mutated each other's data (notes.spec.ts bulk-clears its
+      # account's notes in beforeAll). With a single chromium job there is
+      # nothing to race, so the per-browser accounts are no longer wired up --
+      # the LOGIN_TEST_USER_FIREFOX / _WEBKIT secrets still exist in the repo
+      # if a shard is ever restored.
+      LOGIN_TEST_USER: ${{ secrets.LOGIN_TEST_USER }}
+      LOGIN_TEST_PASSWORD: ${{ secrets.LOGIN_TEST_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,17 +50,17 @@ jobs:
           node-version: lts/*
       - name: Install dependencies
         run: npm ci
-      - name: Install Playwright Browser (${{ matrix.project }})
-        run: npx playwright install --with-deps ${{ matrix.project }}
+      - name: Install Playwright Browser (chromium)
+        run: npx playwright install --with-deps chromium
       - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.project }}
+        run: npx playwright test --project=chromium
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-chromium
           path: playwright-report/
           retention-days: 30
       - name: Upload failure screenshots & videos
@@ -72,7 +69,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results-${{ matrix.project }}
+          name: playwright-test-results-chromium
           path: test-results/
           retention-days: 30
           if-no-files-found: ignore

@@ -373,6 +373,21 @@ test.describe('Notes module automation', () => {
       await notesPage.openNote(title);
       await notesPage.clearDialogTitle();
 
+      // Assert the PRECONDITION before the behaviour, so a failure says which
+      // side is at fault instead of leaving it ambiguous.
+      //
+      // This test fails intermittently (TM2-T003). Its failure screenshots show
+      // the title field genuinely empty, Save still enabled, and no "Note title
+      // is required" error rendered -- i.e. the clear landed and the app's
+      // validation did not react. But the assertion below only ever observed
+      // the button, so "the clear silently didn't take" could never be ruled
+      // out from the artifacts alone. This pins that down.
+      //
+      // Deliberately NOT paired with a settle delay: waiting here could mask a
+      // real validation defect. This narrows the diagnosis, it does not make a
+      // failing run pass.
+      await expect(notesPage.dialogTitleInput()).toHaveValue('');
+
       // Same required-title validation rule applies inside the edit dialog.
       // Disabling is not instantaneous on this environment -- give it room.
       await expect(notesPage.dialogSaveButton()).toBeDisabled({ timeout: 10000 });

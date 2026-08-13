@@ -31,7 +31,7 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
  */
 test.use({ video: 'off', trace: 'off' });
 
-test.describe('My Tasks module automation', () => {
+test.describe('My Tasks module automation', { tag: ['@regression', '@tasks'] }, () => {
   // Same combined login + onboarding-dismissal budget as notes.spec.ts /
   // pulse.spec.ts on this same slow staging environment.
   test.describe.configure({ timeout: 90000 });
@@ -116,7 +116,7 @@ test.describe('My Tasks module automation', () => {
   });
 
   test.describe('Navigation', () => {
-    test('My Tasks page loads successfully from the sidebar', async () => {
+    test('My Tasks page loads successfully from the sidebar', { tag: '@smoke' }, async () => {
       // beforeEach already navigated to My Tasks; assert the "Add Task" entry point.
       await tasksPage.assertTasksPageLoaded();
     });
@@ -132,7 +132,7 @@ test.describe('My Tasks module automation', () => {
 
   test.describe('Task', () => {
     test.describe('Create', () => {
-      test('user can create a task with a valid title and description', async () => {
+      test('user can create a task with a valid title and description', { tag: '@smoke' }, async () => {
         const title = uniqueTitle(TASK_TITLE);
         createdTaskTitles.push(title);
 
@@ -327,7 +327,7 @@ test.describe('My Tasks module automation', () => {
         await tasksPage.assertTaskVisible(title);
       });
 
-      test('user can confirm deletion and the task disappears from the list', async () => {
+      test('user can confirm deletion and the task disappears from the list', { tag: '@smoke' }, async () => {
         const title = uniqueTitle(TASK_TITLE);
         await tasksPage.createTask(title, TASK_DESCRIPTION);
 

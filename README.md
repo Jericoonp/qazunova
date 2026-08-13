@@ -20,6 +20,16 @@ This repository contains a Playwright login automation suite for a staging-only 
 
    npx playwright test tests/login.spec.ts
 
+## Running a slice of the suite
+
+Tests are tagged (`@smoke`, `@regression`, `@login`, `@dashboard`, `@notes`,
+`@tasks`, `@pulse`), so you can run a subset instead of the full 68:
+
+    npm run test:smoke        # 12 tests, the fast confidence check
+    npm run test:regression   # all 68
+
+See [TAGS.md](TAGS.md) for the full list and how to tag a new test.
+
 ## CI / GitHub Actions
 
 The workflow in `.github/workflows/playwright.yml` reads the login credentials from repository secrets:

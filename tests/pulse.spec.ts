@@ -9,7 +9,7 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
   return path.resolve(process.cwd(), 'screenshots', outcome, safeName);
 }
 
-test.describe('Pulse (team channel) lifecycle', () => {
+test.describe('Pulse (team channel) lifecycle', { tag: ['@regression', '@pulse'] }, () => {
   // Login + the onboarding tour dismissal alone can take 15-20s on CI runners,
   // leaving too little of the default 30s test timeout for create/message/rename/delete.
   test.describe.configure({ timeout: 90_000 });
@@ -28,7 +28,7 @@ test.describe('Pulse (team channel) lifecycle', () => {
     });
   });
 
-  test('create a team channel pulse, message in it, rename it, then delete it', async ({ page }) => {
+  test('create a team channel pulse, message in it, rename it, then delete it', { tag: '@smoke' }, async ({ page }) => {
     const loginPage = new LoginPage(page);
     const pulsePage = new PulsePage(page);
 
@@ -57,7 +57,9 @@ test.describe('Pulse (team channel) lifecycle', () => {
     await pulsePage.assertPulseDeleted(renamedChannelName);
   });
 
-  test('schedule an event inside a pulse, then delete it', async ({ page }) => {
+  // TM2-T015: this fails whenever the run starts inside 22:31-23:59 PHT. That is the
+  // product bug firing, not flake - do NOT "stabilise" it with a wait or a retry.
+  test('schedule an event inside a pulse, then delete it', { tag: '@known-issue' }, async ({ page }) => {
     const loginPage = new LoginPage(page);
     const pulsePage = new PulsePage(page);
 

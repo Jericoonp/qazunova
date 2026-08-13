@@ -6,7 +6,12 @@
   "scripts": {
     "test:login": "playwright test tests/login.spec.ts",
     "test:notes": "playwright test tests/notes.spec.ts --workers=1",
-    "test:tasks": "playwright test tests/tasks.spec.ts --workers=1"
+    "test:tasks": "playwright test tests/tasks.spec.ts --workers=1",
+    "test:smoke": "playwright test --grep @smoke --workers=1",
+    "test:regression": "playwright test --grep @regression --workers=1",
+    "test:dashboard": "playwright test --grep @dashboard",
+    "test:pulse": "playwright test --grep @pulse --workers=1",
+    "test:stable": "playwright test --grep-invert @known-issue --workers=1"
   },
   "repository": {
     "type": "git",

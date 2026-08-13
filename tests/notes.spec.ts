@@ -30,7 +30,7 @@ function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
  */
 test.use({ video: 'off', trace: 'off' });
 
-test.describe('Notes module automation', () => {
+test.describe('Notes module automation', { tag: ['@regression', '@notes'] }, () => {
   // The staging environment is noticeably slow (page loads and network
   // round-trips routinely take several seconds), and every test here drives
   // its own fresh login (no shared storage state) through NotesPage.open(),
@@ -135,7 +135,7 @@ test.describe('Notes module automation', () => {
   });
 
   test.describe('Navigation', () => {
-    test('Notes page loads successfully from the sidebar', async () => {
+    test('Notes page loads successfully from the sidebar', { tag: '@smoke' }, async () => {
       // beforeEach already navigated to Notes; assert the landmark heading and empty state.
       await notesPage.assertNotesPageLoaded();
     });
@@ -178,7 +178,7 @@ test.describe('Notes module automation', () => {
   });
 
   test.describe('Create', () => {
-    test('user can create a note with a valid title and content', async () => {
+    test('user can create a note with a valid title and content', { tag: '@smoke' }, async () => {
       const title = uniqueTitle(NOTE_TITLE);
       createdTitles.push(title);
 
@@ -405,7 +405,7 @@ test.describe('Notes module automation', () => {
       await notesPage.assertNoteVisible(title);
     });
 
-    test('user can confirm deletion and the note disappears from the list', async () => {
+    test('user can confirm deletion and the note disappears from the list', { tag: '@smoke' }, async () => {
       const title = uniqueTitle(NOTE_TITLE);
       await notesPage.createNote(title, NOTE_CONTENT);
 

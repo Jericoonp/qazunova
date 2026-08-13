@@ -22,6 +22,20 @@ on:
           - webkit
           - firefox+webkit
           - all
+      tag:
+        description: 'Tagged subset to run. "all" runs everything, exactly as automatic runs do. See TAGS.md.'
+        type: choice
+        required: false
+        default: all
+        options:
+          - all
+          - '@smoke'
+          - '@regression'
+          - '@login'
+          - '@dashboard'
+          - '@notes'
+          - '@tasks'
+          - '@pulse'
 
 jobs:
   test:
@@ -85,7 +99,11 @@ jobs:
       - name: Install Playwright Browser (${{ matrix.browser }})
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.browser }}
+        # Automatic triggers (push / pull_request / schedule) carry no inputs, so
+        # `inputs.tag` is empty and this collapses to the unfiltered full-suite
+        # command those runs have always used. Only a workflow_dispatch that
+        # picks a tag other than "all" adds a --grep.
+        run: npx playwright test --project=${{ matrix.browser }} ${{ (inputs.tag != '' && inputs.tag != 'all') && format('--grep {0}', inputs.tag) || '' }}
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.

@@ -66,7 +66,7 @@ async function assertOutcome(response: Response | undefined, loginPage: LoginPag
   await assertNotAuthenticated(loginPage.page, loginPage, response);
 }
 
-test.describe('Login page automation', () => {
+test.describe('Login page automation', { tag: ['@regression', '@login'] }, () => {
   test.afterEach(async ({ page }, testInfo) => {
     if (testInfo.status === 'passed') {
       return;
@@ -81,7 +81,7 @@ test.describe('Login page automation', () => {
     });
   });
 
-  test('happy path login with valid credentials', async ({ page }) => {
+  test('happy path login with valid credentials', { tag: '@smoke' }, async ({ page }) => {
     const loginPage = new LoginPage(page);
     const responses: Array<{ status: number; url: string; ok: boolean }> = [];
     captureAuthResponse(page, responses);

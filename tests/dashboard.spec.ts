@@ -34,7 +34,7 @@ async function signIn(page: Page): Promise<DashboardPage> {
   return dashboard;
 }
 
-test.describe('Post-login dashboard smoke', () => {
+test.describe('Post-login dashboard smoke', { tag: ['@regression', '@smoke', '@dashboard'] }, () => {
   test.describe.configure({ timeout: 90000 });
 
   test('lands the signed-in user on their workspace home', async ({ page }) => {

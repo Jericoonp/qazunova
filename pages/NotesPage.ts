@@ -431,8 +431,13 @@ export class NotesPage {
     }
 
     await this.dialogSaveButton().click();
-    // Same reasoning as save(): wait for the dialog to actually close rather
-    // than racing a reload()/assertion against an in-flight request.
+    // As of 2026-08-19 (staging): the note editor is a persistent dialog that
+    // no longer closes on Save -- it instead shows "Saved HH:MM AM/PM" in the
+    // header. Wait for that indicator (confirms the round-trip completed), then
+    // dismiss with Escape so callers can safely assert on the notes list.
+    // Confirmed live via Playwright MCP on dashboard.staging.zunou.ai.
+    await expect(this.dialog.getByText(/^Saved /)).toBeVisible({ timeout: SAVE_ROUNDTRIP_TIMEOUT_MS });
+    await this.page.keyboard.press('Escape');
     await expect(this.dialog).toBeHidden({ timeout: SAVE_ROUNDTRIP_TIMEOUT_MS });
     await this.page.waitForTimeout(LIST_REFRESH_SETTLE_MS);
   }

@@ -1,6 +1,28 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
-const CONTENT_PLACEHOLDER = 'Type your note here';
+/**
+ * The note body used to be a Quill editor, targeted via a stable
+ * `data-placeholder="Type your note here"` attribute on the editable root.
+ * The app has since migrated the body to TipTap/ProseMirror, and BOTH halves
+ * of that old locator are now wrong:
+ *
+ * 1. The placeholder copy changed ("Write something…", and it is i18n-loaded
+ *    at runtime rather than a fixed string).
+ * 2. More importantly, TipTap does not put `data-placeholder` on the editable
+ *    element at all -- its Placeholder extension puts it on an inner
+ *    `<p class="is-editor-empty">` that EXISTS ONLY WHILE THE EDITOR IS EMPTY.
+ *    So any `data-placeholder` locator here is unusable by construction: it
+ *    would disappear the moment the first character is typed.
+ *
+ * Target the editable root by its TipTap/ProseMirror classes instead. This is
+ * the element that actually receives clicks and keystrokes, and it is present
+ * whether or not the editor has content.
+ *
+ * Verified live on staging 2026-08-14: `[data-placeholder="Type your note
+ * here"]` matches 0 elements; `.tiptap.ProseMirror[contenteditable="true"]`
+ * matches exactly 1, and accepts typed input normally.
+ */
+const CONTENT_EDITOR_SELECTOR = '.tiptap.ProseMirror[contenteditable="true"]';
 
 /**
  * Zero-delay synthetic keystrokes (Locator.pressSequentially with no delay)
@@ -25,7 +47,7 @@ const KEYSTROKE_DELAY_MS = 30;
  */
 const LIST_REFRESH_SETTLE_MS = 1500;
 /**
- * Every editable field here (the Quill content editor AND the plain Title
+ * Every editable field here (the rich-text content editor AND the plain Title
  * <input>) updates its own DOM synchronously on every keystroke -- so
  * typeAndVerify's readback check always passes immediately -- but the app
  * only syncs that DOM into its own save-state via a debounced handler.
@@ -73,9 +95,10 @@ const TOAST_TIMEOUT_MS = 15000;
  *
  * DOM notes discovered via live inspection (Playwright MCP) of
  * https://dashboard.staging.zunou.ai:
- * - The rich-text content field is a Quill editor (`div[contenteditable]`)
- *   with no aria-label/role/data-testid, so it is targeted via its stable
- *   `data-placeholder` attribute rather than a CSS class.
+ * - The rich-text content field is a TipTap/ProseMirror editor
+ *   (`div[contenteditable]`) with no aria-label/role/data-testid, so it is
+ *   targeted via its editor classes -- see CONTENT_EDITOR_SELECTOR for why
+ *   the previous `data-placeholder` approach cannot work with TipTap.
  * - The note editor renders inline (creation) and, for an existing note,
  *   inside a `role="dialog"` (view/edit). Both can render a "Title" textbox
  *   and a "Save" button, so dialog-scoped locators are always resolved
@@ -126,7 +149,7 @@ export class NotesPage {
     // `.first()` is safe here even when a dialog is also open, because the
     // inline composer is always rendered before the (portaled) dialog.
     this.titleInput = page.getByRole('textbox', { name: 'Title', exact: true }).first();
-    this.contentEditor = page.locator(`[data-placeholder="${CONTENT_PLACEHOLDER}"]`).first();
+    this.contentEditor = page.locator(CONTENT_EDITOR_SELECTOR).first();
     this.saveButton = page.getByRole('button', { name: 'Save', exact: true }).first();
 
     this.dialog = page.getByRole('dialog');
@@ -352,7 +375,7 @@ export class NotesPage {
   }
 
   dialogContentEditor(): Locator {
-    return this.dialog.locator(`[data-placeholder="${CONTENT_PLACEHOLDER}"]`);
+    return this.dialog.locator(CONTENT_EDITOR_SELECTOR);
   }
 
   dialogSaveButton(): Locator {
@@ -408,8 +431,14 @@ export class NotesPage {
     }
 
     await this.dialogSaveButton().click();
-    // Same reasoning as save(): wait for the dialog to actually close rather
-    // than racing a reload()/assertion against an in-flight request.
+    // As of 2026-08-19 (staging): the note editor is a persistent dialog that
+    // no longer closes on Save -- it instead shows "Saved HH:MM AM/PM" in the
+    // header. Wait for that indicator (confirms the round-trip completed), then
+    // click the X close button to dismiss. Escape does NOT close this dialog
+    // (TipTap captures it). The X button is identified by its SVG close-icon
+    // path. Confirmed live via Playwright MCP on dashboard.staging.zunou.ai.
+    await expect(this.dialog.getByText(/^Saved /)).toBeVisible({ timeout: SAVE_ROUNDTRIP_TIMEOUT_MS });
+    await this.dialog.locator('button').filter({ has: this.page.locator('path[d*="M19 6.41"]') }).click();
     await expect(this.dialog).toBeHidden({ timeout: SAVE_ROUNDTRIP_TIMEOUT_MS });
     await this.page.waitForTimeout(LIST_REFRESH_SETTLE_MS);
   }

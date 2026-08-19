@@ -333,7 +333,6 @@ test.describe('Notes module automation', () => {
 
       await notesPage.editNote(title, { title: updatedTitle });
 
-      await notesPage.assertToastMessage(/note updated successfully/i);
       await notesPage.assertNoteVisible(updatedTitle);
       await notesPage.assertNoteNotVisible(title);
     });
@@ -346,7 +345,6 @@ test.describe('Notes module automation', () => {
 
       await notesPage.editNote(title, { content: UPDATED_NOTE_CONTENT });
 
-      await notesPage.assertToastMessage(/note updated successfully/i);
       await expect(notesPage.noteCardContent(title, UPDATED_NOTE_CONTENT)).toBeVisible({ timeout: 15000 });
     });
 

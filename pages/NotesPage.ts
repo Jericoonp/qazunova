@@ -90,6 +90,14 @@ const DIALOG_LOAD_TIMEOUT_MS = 15000;
 const SAVE_ROUNDTRIP_TIMEOUT_MS = 20000;
 const TOAST_TIMEOUT_MS = 15000;
 
+// Overlay neutralisation (shared pattern with TasksPage.ts's clickTaskListRowAction).
+// Run 30608966671 showed saveButton.click() waiting 90s while "Save" was in the DOM
+// but unreachable -- the Zunou assistant launcher sits bottom-right and can land on
+// top of the composer's Save button. Ask the browser what is actually on top and peel
+// it off, then restore after the click.
+const OVERLAY_NEUTRALISED_ATTR = 'data-qa-overlay-neutralised';
+const MAX_STACKED_OVERLAYS = 5;
+
 /**
  * Page Object for the "Notes" module (My Notes) inside a workspace Pulse.
  *
@@ -210,9 +218,24 @@ export class NotesPage {
   async open() {
     await this.dismissOnboardingIfPresent();
 
-    const notesLinkShown = await this.notesNavLink.isVisible().catch(() => false);
+    // Wait briefly for the Notes link to render before concluding it is hidden
+    // under "More". On accounts where Notes is directly in the sidebar the link
+    // appears immediately, but on a freshly-navigated workspace (e.g. after
+    // clicking "Enter Zunou") the sidebar hydrates a moment later and a bare
+    // isVisible() snap-read can race to false even when the link will appear.
+    // Five seconds is cheap against the 300s beforeAll budget and eliminates
+    // the false-"More"-path that leaves open() waiting on a button that never
+    // materialises for those accounts (confirmed: moreNavToggle waited the full
+    // 300s on run 30608966671).
+    const notesLinkShown = await this.notesNavLink
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+
     if (!notesLinkShown) {
-      await this.moreNavToggle.click();
+      // Cap at NAV_STEP_TIMEOUT_MS: if "More" doesn't exist for this workspace
+      // layout, fail fast rather than burning the full beforeAll timeout.
+      await this.moreNavToggle.click({ timeout: NAV_STEP_TIMEOUT_MS });
     }
 
     await this.notesNavLink.click();
@@ -280,7 +303,46 @@ export class NotesPage {
   }
 
   async save() {
-    await this.saveButton.click();
+    // Neutralise any floating widget covering the Save button before clicking
+    // (run 30608966671 retry: saveButton.click() waited the full 90s test
+    // timeout because the Zunou assistant launcher was parked on top of it).
+    // Pattern mirrors TasksPage.ts clickTaskListRowAction -- see comments there.
+    const neutralise = () =>
+      this.saveButton
+        .evaluate((el, { attr, maxLayers }) => {
+          const rect = el.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          for (let layer = 0; layer < maxLayers; layer++) {
+            const hit = document.elementFromPoint(x, y);
+            if (!hit || hit === el || el.contains(hit)) return;
+            if (hit.contains(el)) return;
+            const covering = hit as HTMLElement;
+            covering.setAttribute(attr, covering.style.pointerEvents);
+            covering.style.pointerEvents = 'none';
+          }
+        }, { attr: OVERLAY_NEUTRALISED_ATTR, maxLayers: MAX_STACKED_OVERLAYS })
+        .catch(() => { /* nothing to neutralise */ });
+
+    const restore = () =>
+      this.page
+        .locator(`[${OVERLAY_NEUTRALISED_ATTR}]`)
+        .evaluateAll((els, attr) => {
+          els.forEach((node) => {
+            const el = node as HTMLElement;
+            el.style.pointerEvents = el.getAttribute(attr) ?? '';
+            el.removeAttribute(attr);
+          });
+        }, OVERLAY_NEUTRALISED_ATTR)
+        .catch(() => { /* page already gone */ });
+
+    await neutralise();
+    try {
+      await this.saveButton.click();
+    } finally {
+      await restore();
+    }
+
     // Wait for the composer to close -- the durable signal that the save
     // round-trip actually completed, rather than racing a reload()/assertion
     // against an in-flight request (the toast alone auto-dismisses too

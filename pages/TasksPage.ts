@@ -180,9 +180,17 @@ export class TasksPage {
   async open() {
     await this.dismissOnboardingIfPresent();
 
-    const myTasksLinkShown = await this.myTasksNavLink.isVisible().catch(() => false);
+    // Brief grace period mirrors NotesPage.ts open(): a freshly-navigated workspace
+    // can take a moment to hydrate the sidebar, so a snap isVisible() can race to
+    // false even when the link will appear shortly. Cap moreNavToggle.click() at
+    // NAV_STEP_TIMEOUT_MS to fail fast if the button doesn't exist for this layout.
+    const myTasksLinkShown = await this.myTasksNavLink
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+
     if (!myTasksLinkShown) {
-      await this.moreNavToggle.click();
+      await this.moreNavToggle.click({ timeout: NAV_STEP_TIMEOUT_MS });
     }
 
     await this.myTasksNavLink.click();

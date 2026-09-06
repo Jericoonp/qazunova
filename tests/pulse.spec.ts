@@ -1,6 +1,6 @@
 import path from 'path';
-import { expect, test } from '@playwright/test';
-import { DEFAULT_LOGIN_URL, VALID_PASSWORD, VALID_USERNAME } from '../credentials/loginCredentials';
+import { expect, test } from '../utils/testFixtures';
+import { DEFAULT_LOGIN_URL } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 import { PulsePage } from '../pages/PulsePage';
 
@@ -28,12 +28,17 @@ test.describe('Pulse (team channel) lifecycle', () => {
     });
   });
 
-  test('create a team channel pulse, message in it, rename it, then delete it', async ({ page }) => {
+  test('create a team channel pulse, message in it, rename it, then delete it', async ({ page, account }, testInfo) => {
+    // Extra budget for parallel staging load: dismissOnboardingIfPresent() now
+    // waits up to 20 s for the workspace Home button before cancelling the
+    // timezone dialog, which can push the setup phase past 90 s on a slow server.
+    testInfo.setTimeout(testInfo.timeout + 60000);
+
     const loginPage = new LoginPage(page);
     const pulsePage = new PulsePage(page);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
     await loginPage.assertLoginSuccess();
 
     await pulsePage.dismissOnboardingIfPresent();
@@ -57,12 +62,12 @@ test.describe('Pulse (team channel) lifecycle', () => {
     await pulsePage.assertPulseDeleted(renamedChannelName);
   });
 
-  test('schedule an event inside a pulse, then delete it', async ({ page }) => {
+  test('schedule an event inside a pulse, then delete it', async ({ page, account }) => {
     const loginPage = new LoginPage(page);
     const pulsePage = new PulsePage(page);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
     await loginPage.assertLoginSuccess();
 
     await pulsePage.dismissOnboardingIfPresent();

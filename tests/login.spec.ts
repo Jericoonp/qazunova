@@ -1,6 +1,6 @@
 import path from 'path';
-import { expect, test, type Page, type Response } from '@playwright/test';
-import { DEFAULT_LOGIN_URL, VALID_PASSWORD, VALID_USERNAME } from '../credentials/loginCredentials';
+import { expect, test, type Page, type Response } from '../utils/testFixtures';
+import { DEFAULT_LOGIN_URL } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 
 function buildScreenshotPath(testInfo: any, outcome: 'passed' | 'failed') {
@@ -81,13 +81,13 @@ test.describe('Login page automation', () => {
     });
   });
 
-  test('happy path login with valid credentials', async ({ page }) => {
+  test('happy path login with valid credentials', async ({ page, account }) => {
     const loginPage = new LoginPage(page);
     const responses: Array<{ status: number; url: string; ok: boolean }> = [];
     captureAuthResponse(page, responses);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+    await loginPage.login(account.username, account.password);
 
     const response = await waitForLoginResponse(page);
     await assertOutcome(response, loginPage, 'success');
@@ -96,25 +96,25 @@ test.describe('Login page automation', () => {
     expect(responses.some((entry) => entry.status >= 200 && entry.status < 500)).toBeTruthy();
   });
 
-  test('negative login with invalid username', async ({ page }) => {
+  test('negative login with invalid username', async ({ page, account }) => {
     const loginPage = new LoginPage(page);
     const responses: Array<{ status: number; url: string; ok: boolean }> = [];
     captureAuthResponse(page, responses);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login('invalid.user@example.test', VALID_PASSWORD);
+    await loginPage.login('invalid.user@example.test', account.password);
 
     const response = await waitForLoginResponse(page);
     await assertOutcome(response, loginPage, 'failure');
   });
 
-  test('negative login with invalid password', async ({ page }) => {
+  test('negative login with invalid password', async ({ page, account }) => {
     const loginPage = new LoginPage(page);
     const responses: Array<{ status: number; url: string; ok: boolean }> = [];
     captureAuthResponse(page, responses);
 
     await loginPage.goto(DEFAULT_LOGIN_URL);
-    await loginPage.login(VALID_USERNAME, 'wrong-password');
+    await loginPage.login(account.username, 'wrong-password');
 
     const response = await waitForLoginResponse(page);
     await assertOutcome(response, loginPage, 'failure');

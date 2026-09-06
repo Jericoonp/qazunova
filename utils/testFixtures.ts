@@ -33,20 +33,38 @@ async function assertAccountCanReachWorkspace(browser: Browser, account: Staging
     await loginPage.assertLoginSuccess();
 
     const accessDenied = page.getByText(/Access Denied/i).first();
-    // Anything signed in and invited renders the workspace sidebar; Home is the
-    // one entry every account has, whatever its pulses look like. Waiting on
-    // "either outcome" rather than on Home alone is what keeps the denied case
-    // fast -- otherwise this preflight just moves the long hang, it doesn't
-    // remove it.
-    await baseExpect(accessDenied.or(page.getByRole('button', { name: 'Home', exact: true })))
-      .toBeVisible({ timeout: PREFLIGHT_TIMEOUT_MS });
+    const home = page.getByRole('button', { name: 'Home', exact: true });
 
+    // Anything signed in and invited renders the workspace sidebar; Home is the
+    // one entry every account has, whatever its pulses look like. Racing the two
+    // outcomes is what keeps the denied case fast -- otherwise this preflight
+    // just moves the long hang, it doesn't remove it.
+    await baseExpect(accessDenied.or(home)).toBeVisible({ timeout: PREFLIGHT_TIMEOUT_MS });
+
+    // ...but the race alone cannot DECIDE, because "Access Denied" is also what
+    // this app paints BEFORE its permissions query resolves. First-past-the-post
+    // therefore reads the pre-resolution frame as a verdict. Run 34066137713
+    // (3 workers) failed 3 dashboard tests that way at 1.5s while the workspace
+    // arrived ~18s later; all three slots threw it -- including LOGIN_TEST_USER,
+    // which passes in every serial run -- and 64 tests then passed on those same
+    // accounts. Concurrent logins widen the window; they do not create it.
+    //
+    // So a denied verdict is provisional: only a denial that OUTLASTS the
+    // workspace wait is real. That costs a genuinely un-invited account a second
+    // budget, which is the right trade -- that case fails the run once and is
+    // being diagnosed, whereas a false positive breaks runs that should be green.
     if (await accessDenied.isVisible()) {
-      throw new Error(
-        `Staging account from ${account.source} authenticates but has no workspace access ` +
-          `("Access Denied -- contact your administrator for an invite"). Invite ${account.username} ` +
-          `to the staging organization, or unset ${account.source} to drop the worker slot.`
-      );
+      const reachedWorkspace = await home
+        .waitFor({ state: 'visible', timeout: PREFLIGHT_TIMEOUT_MS })
+        .then(() => true, () => false);
+
+      if (!reachedWorkspace) {
+        throw new Error(
+          `Staging account from ${account.source} authenticates but has no workspace access ` +
+            `("Access Denied -- contact your administrator for an invite"). Invite ${account.username} ` +
+            `to the staging organization, or unset ${account.source} to drop the worker slot.`
+        );
+      }
     }
   } finally {
     await context.close();

@@ -117,7 +117,20 @@ export class NotesPage {
     // "Cancel" button, since they belong to unrelated dialogs.
     this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
     this.moreNavToggle = page.getByRole('button', { name: 'More', exact: true });
-    this.notesNavLink = page.getByRole('button', { name: 'Notes', exact: true });
+    // The sidebar renders "Notes" in one of two places, and the two use
+    // DIFFERENT roles:
+    // - On the rail (when it fits), it is an icon button carrying an
+    //   aria-label -- role=button, accessible name "Notes".
+    // - Under the "More" overflow, it is a MUI MenuItem -- role=menuitem.
+    // A plain role=button locator therefore matches only the first case, and
+    // the moment the viewport pushes Notes into the overflow it hangs out its
+    // full timeout in open()'s beforeAll, taking the whole file down with it.
+    // That is what has kept this suite dark on CI since 2026-08-23.
+    // Note it is only the ITEMS whose role changes -- the "More" toggle above
+    // is a role=button in both layouts, so it needs no `.or()`.
+    this.notesNavLink = page
+      .getByRole('button', { name: 'Notes', exact: true })
+      .or(page.getByRole('menuitem', { name: 'Notes', exact: true }));
     this.pageHeading = page.getByText('My Notes', { exact: true });
     this.takeNoteButton = page.getByRole('button', { name: 'Take a Note' });
     this.emptyState = page.getByText('No notes yet', { exact: true });

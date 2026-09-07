@@ -1,5 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-import { DEFAULT_LOGIN_URL, VALID_USERNAME, VALID_PASSWORD } from '../credentials/loginCredentials';
+import { test, expect, type Page } from '../utils/testFixtures';
+import { DEFAULT_LOGIN_URL, type StagingAccount } from '../credentials/loginCredentials';
 import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
 
@@ -24,10 +24,10 @@ import { DashboardPage } from '../pages/DashboardPage';
  * carries the same 90s budget as notes.spec.ts / tasks.spec.ts / pulse.spec.ts.
  */
 
-async function signIn(page: Page): Promise<DashboardPage> {
+async function signIn(page: Page, account: StagingAccount): Promise<DashboardPage> {
   const loginPage = new LoginPage(page);
   await loginPage.goto(DEFAULT_LOGIN_URL);
-  await loginPage.login(VALID_USERNAME, VALID_PASSWORD);
+  await loginPage.login(account.username, account.password);
   await loginPage.assertLoginSuccess();
   const dashboard = new DashboardPage(page);
   await dashboard.dismissOnboardingIfPresent();
@@ -37,25 +37,25 @@ async function signIn(page: Page): Promise<DashboardPage> {
 test.describe('Post-login dashboard smoke', () => {
   test.describe.configure({ timeout: 90000 });
 
-  test('lands the signed-in user on their workspace home', async ({ page }) => {
-    const dashboard = await signIn(page);
-    await dashboard.assertLoaded(VALID_USERNAME);
+  test('lands the signed-in user on their workspace home', async ({ page, account }) => {
+    const dashboard = await signIn(page, account);
+    await dashboard.assertLoaded(account.username);
   });
 
-  test('renders the workspace navigation', async ({ page }) => {
-    const dashboard = await signIn(page);
+  test('renders the workspace navigation', async ({ page, account }) => {
+    const dashboard = await signIn(page, account);
     await dashboard.assertLoaded();
     await dashboard.assertWorkspaceChrome();
   });
 
-  test('offers the assistant composer on home', async ({ page }) => {
-    const dashboard = await signIn(page);
+  test('offers the assistant composer on home', async ({ page, account }) => {
+    const dashboard = await signIn(page, account);
     await dashboard.assertLoaded();
     await dashboard.assertAssistantComposer();
   });
 
-  test('keeps the session authenticated across a reload', async ({ page }) => {
-    const dashboard = await signIn(page);
+  test('keeps the session authenticated across a reload', async ({ page, account }) => {
+    const dashboard = await signIn(page, account);
     await dashboard.assertLoaded();
 
     await page.reload({ waitUntil: 'domcontentloaded' });

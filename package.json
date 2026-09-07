@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test:login": "playwright test tests/login.spec.ts",
-    "test:notes": "playwright test tests/notes.spec.ts --workers=1",
-    "test:tasks": "playwright test tests/tasks.spec.ts --workers=1"
+    "test:notes": "playwright test tests/notes.spec.ts",
+    "test:tasks": "playwright test tests/tasks.spec.ts"
   },
   "repository": {
     "type": "git",

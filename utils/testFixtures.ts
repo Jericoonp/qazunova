@@ -97,7 +97,18 @@ export const test = base.extend<{}, { account: StagingAccount }>({
       await assertAccountCanReachWorkspace(browser, account);
       await use(account);
     },
-    { scope: 'worker' },
+    // Playwright's default fixture timeout is 30s, which is LESS than this
+    // fixture's own body is allowed to take: the preflight budgets
+    // PREFLIGHT_TIMEOUT_MS for the accessDenied-or-home race and, on a
+    // provisional denial, a second one to outlast it -- plus the login itself.
+    // Leaving the default in place capped a 45s+45s design at 30s, so the
+    // fixture could never spend the budget it was written to spend. Run
+    // 34068656660 (3 workers) hit exactly that: all three dashboard tests died
+    // with "Fixture account timeout of 30000ms exceeded during setup" on the
+    // first attempt, when three cold-start logins ran at once, then passed on
+    // retry in 17.8s once the workspace was warm. Derive the ceiling from the
+    // budget instead of picking a round number, so the two cannot drift apart.
+    { scope: 'worker', timeout: 2 * PREFLIGHT_TIMEOUT_MS + 30_000 },
   ],
 });
 

@@ -35,6 +35,11 @@ function resolveWorkers(): number {
  */
 export default defineConfig({
   testDir: './tests',
+  /* One throwaway login before the workers fan out, so the first thing each
+   * worker's preflight does is not also this environment's cold boot. See
+   * utils/globalSetup.ts for the run that pinned cold start -- not
+   * concurrency -- as the cause. Deliberately non-fatal. */
+  globalSetup: require.resolve('./utils/globalSetup'),
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

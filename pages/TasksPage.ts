@@ -99,7 +99,12 @@ export class TasksPage {
     this.skipTourButton = page.getByRole('button', { name: 'Skip' });
     this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
     this.moreNavToggle = page.getByRole('button', { name: 'More', exact: true });
-    this.myTasksNavLink = page.getByRole('button', { name: 'My Tasks', exact: true });
+    // Same rail-vs-overflow role split as NotesPage.ts's notesNavLink -- see
+    // the comment there. On the rail "My Tasks" is a role=button icon button;
+    // under "More" it is a role=menuitem, so match either.
+    this.myTasksNavLink = page
+      .getByRole('button', { name: 'My Tasks', exact: true })
+      .or(page.getByRole('menuitem', { name: 'My Tasks', exact: true }));
 
     // Always present regardless of whether the list is empty or populated
     // (confirmed live) -- the equivalent of NotesPage.ts's takeNoteButton as

@@ -1,80 +1,56 @@
 name: Playwright Tests
+
+# ⚠️ THIS BRANCH'S COPY IS A PROBE, NOT THE SUITE. ⚠️
+#
+# `qa/tm2t014-account-access-probe` exists to answer one question: does each
+# staging account in PR #21's worker pool still reach a workspace? (TM2-T014,
+# parked 8 days on exactly this.) This file is deliberately NOT the regression
+# suite -- it runs probe/account-access.spec.ts instead.
+#
+# WHY IT OVERWRITES playwright.yml RATHER THAN ADDING probe-account-access.yml:
+# workflow_dispatch only registers workflows that exist on the DEFAULT branch.
+# A new workflow file on a feature branch is invisible to `gh workflow run` --
+# verified 2026-09-15, the API lists exactly one registered workflow here. But
+# dispatching a REGISTERED workflow with `--ref <branch>` runs THAT BRANCH'S
+# copy of the file. So the probe has to live at this path to be runnable at all.
+#
+# Nothing here reaches main: this branch has no PR and is not merge-intended.
+#
+#   gh workflow run playwright.yml --ref qa/tm2t014-account-access-probe
+#
+# -- MeQAtron
+
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  # Regression run every 6 hours, starting 08:00 PHT (UTC+8).
-  # 00:00/06:00/12:00/18:00 UTC == 08:00/14:00/20:00/02:00 PHT.
-  schedule:
-    - cron: '0 0,6,12,18 * * *'
-  # Allow manual, on-demand runs from the Actions tab.
+  # Manual only. The automatic triggers are removed on purpose: this branch must
+  # never run a scheduled or push-driven job, and a probe that fired by accident
+  # would log in as the shared staging account behind my back.
   workflow_dispatch:
-    inputs:
-      browsers:
-        description: 'Browser(s) to run. Automatic runs are always chromium only; this is for one-off cross-engine checks.'
-        type: choice
-        required: false
-        default: chromium
-        options:
-          - chromium
-          - firefox
-          - webkit
-          - firefox+webkit
-          - all
 
 jobs:
   test:
-    # Bumped from 30: the suite now runs 67 tests/browser (was ~35) with the
-    # addition of tasks.spec.ts (32 tests, each paying its own full
-    # login+onboarding cost against a slow staging backend -- see that
-    # file's header comment). A live chromium run of just tasks.spec.ts
-    # alone took ~33 minutes; 30 minutes total was already tight for the
-    # rest of the suite (notes/login/dashboard/pulse) before this addition.
-    # webkit is the slowest engine here at ~61min, hence the headroom.
-    timeout-minutes: 90
+    # The probe signs in as LOGIN_TEST_USER (slot 1), the same account the
+    # chromium suite and manual QA use. It only READS -- signs in, looks at the
+    # sidebar -- so it cannot wipe a live run's fixtures the way the notes/tasks
+    # beforeAll hooks would. But a concurrent login widens the pre-resolution
+    # "Access Denied" window, which would confound slot 1, my control arm.
+    concurrency:
+      group: playwright-staging-chromium
+      cancel-in-progress: false
+    # Three logins, at most two 45s waits each. 15 minutes is ample, and a cap
+    # this low is deliberate: an unresponsive staging must fail fast here rather
+    # than burn the suite's 90-minute budget for no diagnostic.
+    timeout-minutes: 15
     runs-on: ubuntu-latest
-    strategy:
-      # One browser failing must not cancel the others -- the whole point of a
-      # cross-engine run is to see ALL the engines' results, especially when
-      # one of them is red.
-      fail-fast: false
-      # Automatic triggers (push / pull_request / schedule) carry no inputs, so
-      # this collapses to chromium alone -- the browser matrix was removed from
-      # automatic runs by request (Earl Dominic, 2026-07-31).
-      #
-      # The evidence backed that: on run 30323518312, where all three shards
-      # ran the same suite, firefox and webkit surfaced no product bug chromium
-      # missed (webkit's 2 failures were teardown/timeout artifacts, not engine
-      # behaviour), while webkit took 61min against chromium's 37min. Every run
-      # waited on the slowest, least informative shard.
-      #
-      # What that trade-off costs, and why this input exists: chromium-only CI
-      # cannot see a firefox/webkit-only defect AT ALL. TM2-T003 (notes
-      # clear-title) is exactly that shape -- in run 30574845877 it failed ONLY
-      # on firefox and webkit, so chromium-only CI reports green while the bug
-      # is still live. Use workflow_dispatch with this input to check the other
-      # engines deliberately, instead of paying for a permanent 3x fan-out.
-      matrix:
-        browser: ${{ fromJSON(
-          inputs.browsers == 'all' && '["chromium","firefox","webkit"]'
-          || inputs.browsers == 'firefox+webkit' && '["firefox","webkit"]'
-          || inputs.browsers == 'firefox' && '["firefox"]'
-          || inputs.browsers == 'webkit' && '["webkit"]'
-          || '["chromium"]') }}
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}
-      # Each browser authenticates as its OWN dedicated staging account, so
-      # concurrent shards never mutate each other's data (notes.spec.ts and
-      # tasks.spec.ts bulk-clear their account in beforeAll -- two browsers
-      # sharing one account would wipe each other's fixtures mid-run).
-      #
-      # This matters OUTSIDE CI too: LOGIN_TEST_USER is the same staging
-      # account used for manual browser QA, so a manual session and an
-      # in-flight chromium run corrupt each other. Check `gh run list` before
-      # doing manual QA against staging.
-      LOGIN_TEST_USER: ${{ matrix.browser == 'firefox' && secrets.LOGIN_TEST_USER_FIREFOX || matrix.browser == 'webkit' && secrets.LOGIN_TEST_USER_WEBKIT || secrets.LOGIN_TEST_USER }}
-      LOGIN_TEST_PASSWORD: ${{ matrix.browser == 'firefox' && secrets.LOGIN_TEST_PASSWORD_FIREFOX || matrix.browser == 'webkit' && secrets.LOGIN_TEST_PASSWORD_WEBKIT || secrets.LOGIN_TEST_PASSWORD }}
+      # All three pool accounts, under the names the probe reads. The probe never
+      # prints a credential -- it reports the VAR NAME that failed.
+      LOGIN_TEST_USER: ${{ secrets.LOGIN_TEST_USER }}
+      LOGIN_TEST_PASSWORD: ${{ secrets.LOGIN_TEST_PASSWORD }}
+      LOGIN_TEST_USER_FIREFOX: ${{ secrets.LOGIN_TEST_USER_FIREFOX }}
+      LOGIN_TEST_PASSWORD_FIREFOX: ${{ secrets.LOGIN_TEST_PASSWORD_FIREFOX }}
+      LOGIN_TEST_USER_WEBKIT: ${{ secrets.LOGIN_TEST_USER_WEBKIT }}
+      LOGIN_TEST_PASSWORD_WEBKIT: ${{ secrets.LOGIN_TEST_PASSWORD_WEBKIT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -82,26 +58,33 @@ jobs:
           node-version: lts/*
       - name: Install dependencies
         run: npm ci
-      - name: Install Playwright Browser (${{ matrix.browser }})
-        run: npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.browser }}
-      - name: Upload Playwright report
-        # Always keep the report on scheduled/manual runs (for the nightly record),
-        # and on any failed push/PR run.
-        if: ${{ !cancelled() }}
+      - name: Install Playwright Browser (chromium)
+        # chromium only, whichever ACCOUNT is under test: PR #21 hands the
+        # firefox/webkit accounts to chromium workers, so the browser is not the
+        # variable here -- the account is.
+        run: npx playwright install --with-deps chromium
+      - name: Probe every pool account
+        # pipefail so the step's status is Playwright's, not tee's. continue-on-error
+        # because a RED arm is this probe's FINDING, not its failure -- the run must
+        # still reach the uploads below, which carry the screenshot and trace that
+        # say whether a denial was real or just a pre-resolution frame.
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npx playwright test --config playwright.probe.config.ts 2>&1 | tee probe-run.log
+      - name: Upload probe log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.browser }}
-          path: playwright-report/
+          name: probe-account-access-log
+          path: probe-run.log
           retention-days: 30
-      - name: Upload failure screenshots & videos
-        # Raw per-test screenshots, videos, and traces for quick access without
-        # opening the full HTML report.
-        if: failure()
+          if-no-files-found: ignore
+      - name: Upload traces & screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results-${{ matrix.browser }}
+          name: probe-account-access-results
           path: test-results/
           retention-days: 30
           if-no-files-found: ignore

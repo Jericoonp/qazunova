@@ -106,7 +106,14 @@ jobs:
       - name: Install Playwright Browser (${{ matrix.browser }})
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.browser }}
+        # pipefail so the step's exit status is Playwright's, not tee's -- without
+        # it a failing suite would report success. The `list` reporter prints
+        # incrementally, so test-run.log survives the SIGKILL that ends a capped
+        # run, and its LAST LINE names the spec that was still in flight when the
+        # clock ran out. That is the one diagnostic the HTML report cannot give.
+        run: |
+          set -o pipefail
+          npx playwright test --project=${{ matrix.browser }} 2>&1 | tee test-run.log
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.
@@ -115,22 +122,47 @@ jobs:
         # skipped. Since 2026-09-10 every scheduled run has hit the 90-minute
         # timeout-minutes cap, which GitHub reports as `cancelled` -- so 39
         # consecutive runs (~58 hours of CI) uploaded NOTHING and TM2-T019 had
-        # to be diagnosed without a single artifact. A capped run is exactly
-        # when the partial report is most valuable: it names which spec was
-        # still hanging when the clock ran out.
+        # to be diagnosed without a single artifact.
+        #
+        # HONEST SCOPE (measured, probe run 34928196365): on a CAPPED run this
+        # step now fires but still uploads nothing -- the html reporter writes
+        # playwright-report/ in onEnd(), which a killed run never reaches, so
+        # the directory is absent. Keep always() anyway: it is correct for every
+        # non-capped run. The artifacts that actually survive a cap are the two
+        # steps below. `if-no-files-found: warn` is deliberate -- a green upload
+        # step is NOT proof an artifact exists, and the warning is the only
+        # in-run signal that this one came back empty.
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 30
+          if-no-files-found: warn
       - name: Upload failure screenshots & videos
         # Raw per-test screenshots, videos, and traces for quick access without
         # opening the full HTML report.
-        if: failure()
+        #
+        # THIS is the step that recovers a capped run. Measured on probe run
+        # 34928196365: at cancel time test-results/ was fully POPULATED (4
+        # per-test dirs + .playwright-artifacts-5), holding the traces from
+        # use.trace='retain-on-failure' -- the richest diagnostic in the repo.
+        # It was discarded solely because this guard was `if: failure()`, and
+        # failure() is FALSE on a run GitHub reports as `cancelled`. One word.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results-${{ matrix.browser }}
           path: test-results/
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Upload run log
+        # Cheap human-readable index of a run, and the only artifact that is
+        # guaranteed to exist after a cap (tee writes it line by line).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-run-log-${{ matrix.browser }}
+          path: test-run.log
           retention-days: 30
           if-no-files-found: ignore

@@ -25,6 +25,27 @@ on:
 
 jobs:
   test:
+    # Serialise every run that authenticates as the SAME staging account.
+    #
+    # The env block below already stops two BROWSERS in one run from sharing an
+    # account. Nothing stopped two RUNS from doing it: a workflow_dispatch, a
+    # PR run and the 6-hourly schedule are all chromium by default, so they all
+    # log in as LOGIN_TEST_USER. notes.spec.ts and tasks.spec.ts bulk-clear that
+    # account in beforeAll, so an overlapping run wipes the other's fixtures
+    # mid-test -- the exact failure the env comment warns about, one level up.
+    #
+    # Measured before this change: 42 of 291 completed runs (14%) were live
+    # while another run was live, including run 34057567384, the run cited as
+    # the #23+#24 verification. Concrete instance on 2026-09-15: scheduled run
+    # 34926268523 started while dispatch run 34925078198 was 19 minutes in.
+    #
+    # Keyed on the browser because the browser IS the account (see env below) --
+    # a firefox/webkit dispatch uses different credentials and need not queue
+    # behind a chromium run. cancel-in-progress stays false: the older run is
+    # the one already holding the account and must be allowed to finish.
+    concurrency:
+      group: playwright-staging-${{ matrix.browser }}
+      cancel-in-progress: false
     # Bumped from 30: the suite now runs 67 tests/browser (was ~35) with the
     # addition of tasks.spec.ts (32 tests, each paying its own full
     # login+onboarding cost against a slow staging backend -- see that
@@ -85,23 +106,63 @@ jobs:
       - name: Install Playwright Browser (${{ matrix.browser }})
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.browser }}
+        # pipefail so the step's exit status is Playwright's, not tee's -- without
+        # it a failing suite would report success. The `list` reporter prints
+        # incrementally, so test-run.log survives the SIGKILL that ends a capped
+        # run, and its LAST LINE names the spec that was still in flight when the
+        # clock ran out. That is the one diagnostic the HTML report cannot give.
+        run: |
+          set -o pipefail
+          npx playwright test --project=${{ matrix.browser }} 2>&1 | tee test-run.log
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.
-        if: ${{ !cancelled() }}
+        #
+        # `!cancelled()` was the one case that mattered and the one case it
+        # skipped. Since 2026-09-10 every scheduled run has hit the 90-minute
+        # timeout-minutes cap, which GitHub reports as `cancelled` -- so 39
+        # consecutive runs (~58 hours of CI) uploaded NOTHING and TM2-T019 had
+        # to be diagnosed without a single artifact.
+        #
+        # HONEST SCOPE (measured, probe run 34928196365): on a CAPPED run this
+        # step now fires but still uploads nothing -- the html reporter writes
+        # playwright-report/ in onEnd(), which a killed run never reaches, so
+        # the directory is absent. Keep always() anyway: it is correct for every
+        # non-capped run. The artifacts that actually survive a cap are the two
+        # steps below. `if-no-files-found: warn` is deliberate -- a green upload
+        # step is NOT proof an artifact exists, and the warning is the only
+        # in-run signal that this one came back empty.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 30
+          if-no-files-found: warn
       - name: Upload failure screenshots & videos
         # Raw per-test screenshots, videos, and traces for quick access without
         # opening the full HTML report.
-        if: failure()
+        #
+        # THIS is the step that recovers a capped run. Measured on probe run
+        # 34928196365: at cancel time test-results/ was fully POPULATED (4
+        # per-test dirs + .playwright-artifacts-5), holding the traces from
+        # use.trace='retain-on-failure' -- the richest diagnostic in the repo.
+        # It was discarded solely because this guard was `if: failure()`, and
+        # failure() is FALSE on a run GitHub reports as `cancelled`. One word.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results-${{ matrix.browser }}
           path: test-results/
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Upload run log
+        # Cheap human-readable index of a run, and the only artifact that is
+        # guaranteed to exist after a cap (tee writes it line by line).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-run-log-${{ matrix.browser }}
+          path: test-run.log
           retention-days: 30
           if-no-files-found: ignore

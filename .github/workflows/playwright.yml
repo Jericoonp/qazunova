@@ -25,6 +25,27 @@ on:
 
 jobs:
   test:
+    # Serialise every run that authenticates as the SAME staging account.
+    #
+    # The env block below already stops two BROWSERS in one run from sharing an
+    # account. Nothing stopped two RUNS from doing it: a workflow_dispatch, a
+    # PR run and the 6-hourly schedule are all chromium by default, so they all
+    # log in as LOGIN_TEST_USER. notes.spec.ts and tasks.spec.ts bulk-clear that
+    # account in beforeAll, so an overlapping run wipes the other's fixtures
+    # mid-test -- the exact failure the env comment warns about, one level up.
+    #
+    # Measured before this change: 42 of 291 completed runs (14%) were live
+    # while another run was live, including run 34057567384, the run cited as
+    # the #23+#24 verification. Concrete instance on 2026-09-15: scheduled run
+    # 34926268523 started while dispatch run 34925078198 was 19 minutes in.
+    #
+    # Keyed on the browser because the browser IS the account (see env below) --
+    # a firefox/webkit dispatch uses different credentials and need not queue
+    # behind a chromium run. cancel-in-progress stays false: the older run is
+    # the one already holding the account and must be allowed to finish.
+    concurrency:
+      group: playwright-staging-${{ matrix.browser }}
+      cancel-in-progress: false
     # Bumped from 30: the suite now runs 67 tests/browser (was ~35) with the
     # addition of tasks.spec.ts (32 tests, each paying its own full
     # login+onboarding cost against a slow staging backend -- see that
@@ -89,7 +110,15 @@ jobs:
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.
-        if: ${{ !cancelled() }}
+        #
+        # `!cancelled()` was the one case that mattered and the one case it
+        # skipped. Since 2026-09-10 every scheduled run has hit the 90-minute
+        # timeout-minutes cap, which GitHub reports as `cancelled` -- so 39
+        # consecutive runs (~58 hours of CI) uploaded NOTHING and TM2-T019 had
+        # to be diagnosed without a single artifact. A capped run is exactly
+        # when the partial report is most valuable: it names which spec was
+        # still hanging when the clock ran out.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.browser }}

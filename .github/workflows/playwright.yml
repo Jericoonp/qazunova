@@ -53,7 +53,15 @@ jobs:
     # alone took ~33 minutes; 30 minutes total was already tight for the
     # rest of the suite (notes/login/dashboard/pulse) before this addition.
     # webkit is the slowest engine here at ~61min, hence the headroom.
-    timeout-minutes: 90
+    #
+    # PROBE BRANCH ONLY -- DO NOT MERGE. Lowered 90 -> 12 to reproduce the cap
+    # cancellation cheaply. The cap is THIS job-level timeout, so a 12-minute
+    # cap exercises the identical GitHub code path (timeout -> job cancelled ->
+    # `if: always()` steps still run) at 1/7th the CI cost. ~4 min of that goes
+    # to npm ci + browser install, leaving ~8 min of live testing, which is
+    # several completed specs -- enough for a partial report to be non-empty
+    # IF the reporter ever flushes one.
+    timeout-minutes: 12
     runs-on: ubuntu-latest
     strategy:
       # One browser failing must not cancel the others -- the whole point of a
@@ -106,7 +114,16 @@ jobs:
       - name: Install Playwright Browser (${{ matrix.browser }})
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.browser }}
+        # PROBE BRANCH ONLY -- DO NOT MERGE. `tee` is the candidate fix for the
+        # half PR #26 does NOT cover. The `list` reporter prints incrementally
+        # to stdout, so a log file grows test-by-test and survives a SIGKILL;
+        # the `html` reporter only writes in onEnd(), so a capped run may leave
+        # playwright-report/ empty and upload nothing even with `if: always()`.
+        # pipefail keeps the step's exit code Playwright's, not tee's.
+        shell: bash
+        run: |
+          set -o pipefail
+          npx playwright test --project=${{ matrix.browser }} 2>&1 | tee test-run.log
       - name: Upload Playwright report
         # Always keep the report on scheduled/manual runs (for the nightly record),
         # and on any failed push/PR run.
@@ -134,3 +151,28 @@ jobs:
           path: test-results/
           retention-days: 30
           if-no-files-found: ignore
+      # ---- PROBE BRANCH ONLY -- DO NOT MERGE (TM2-T019) ----
+      # Deliberately placed AFTER the real report upload so arm A is measured
+      # first, under the same cancellation grace a production capped run gets.
+      - name: PROBE -- what actually exists on disk at cancel time
+        # The decisive evidence, readable in the run log even if every upload
+        # returns zero artifacts: does playwright-report/ contain anything?
+        if: always()
+        shell: bash
+        run: |
+          echo "=== playwright-report/ ==="
+          ls -la playwright-report/ 2>&1 || echo "ABSENT"
+          echo "=== test-results/ ==="
+          ls -la test-results/ 2>&1 || echo "ABSENT"
+          echo "=== test-run.log size ==="
+          wc -c test-run.log 2>&1 || echo "ABSENT"
+          echo "=== tail of the incremental log (should name the hanging spec) ==="
+          tail -25 test-run.log 2>&1 || echo "ABSENT"
+      - name: PROBE -- upload the incremental stdout log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-stdout-log-${{ matrix.browser }}
+          path: test-run.log
+          retention-days: 7
+          if-no-files-found: warn

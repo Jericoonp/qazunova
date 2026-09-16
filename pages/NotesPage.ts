@@ -116,7 +116,14 @@ export class NotesPage {
     // deleteConfirmationCancelButton below even though both target a
     // "Cancel" button, since they belong to unrelated dialogs.
     this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
-    this.moreNavToggle = page.getByRole('button', { name: 'More', exact: true });
+    // The overflow toggle was RENAMED "More" -> "Sidebar options" (measured on
+    // staging 144.24.0-staging.3, entry index-DqblkVS3, 2026-09-17: the rail has
+    // NO button named "More"; the MoreHorizRoundedIcon button carries
+    // aria-label="Sidebar options" and opens the role=menu holding the overflow
+    // items). Match both names so the locator survives either spelling.
+    this.moreNavToggle = page
+      .getByRole('button', { name: 'Sidebar options', exact: true })
+      .or(page.getByRole('button', { name: 'More', exact: true }));
     // The sidebar renders "Notes" in one of two places, and the two use
     // DIFFERENT roles:
     // - On the rail (when it fits), it is an icon button carrying an
@@ -126,8 +133,9 @@ export class NotesPage {
     // the moment the viewport pushes Notes into the overflow it hangs out its
     // full timeout in open()'s beforeAll, taking the whole file down with it.
     // That is what has kept this suite dark on CI since 2026-08-23.
-    // Note it is only the ITEMS whose role changes -- the "More" toggle above
-    // is a role=button in both layouts, so it needs no `.or()`.
+    // Note it is only the ITEMS whose ROLE changes -- the overflow toggle above
+    // is a role=button in both layouts. It still needs its own `.or()`, but for
+    // a different reason: its NAME changed, not its role.
     this.notesNavLink = page
       .getByRole('button', { name: 'Notes', exact: true })
       .or(page.getByRole('menuitem', { name: 'Notes', exact: true }));

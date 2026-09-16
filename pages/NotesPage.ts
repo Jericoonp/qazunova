@@ -25,6 +25,25 @@ import { expect, type Locator, type Page } from '@playwright/test';
 const CONTENT_EDITOR_SELECTOR = '.tiptap.ProseMirror[contenteditable="true"]';
 
 /**
+ * `.MuiCard-root` is NOT by itself "a saved note". The inline composer is
+ * rendered as a `.MuiCard-root` too, so on a list with zero notes but an OPEN
+ * composer, a bare `.MuiCard-root` count reads 1 and every "are there notes?"
+ * check returns a false TRUE -- deleteAllNotes() then clicks the composer and
+ * waits for a delete dialog that never opens.
+ *
+ * The composer is distinguished from a saved note card by the editable
+ * controls it contains (the "Title" <input> and the TipTap body); a saved
+ * note card renders neither. Filtering on those is stable across the grid /
+ * cards / compact-list view toggles, which change the card's own classes.
+ *
+ * Measured live on staging 2026-09-16, all three states:
+ *   0 notes + composer closed -> 0 composer-excluded cards (bare count 0)
+ *   0 notes + composer OPEN   -> 0 composer-excluded cards (bare count 1) <-- the bug
+ *   1 note  + composer closed -> 1 composer-excluded card  (bare count 1)
+ */
+const COMPOSER_MARKER_SELECTOR = `input[placeholder="Title"], ${CONTENT_EDITOR_SELECTOR}`;
+
+/**
  * Zero-delay synthetic keystrokes (Locator.pressSequentially with no delay)
  * race this app's React state: the DOM visibly shows the typed value, but
  * the app's own validation state (which gates the Save button) never
@@ -117,7 +136,7 @@ export class NotesPage {
   readonly notesNavLink: Locator;
   readonly pageHeading: Locator;
   readonly takeNoteButton: Locator;
-  readonly emptyState: Locator;
+  readonly noteCards: Locator;
   readonly toast: Locator;
 
   readonly titleInput: Locator;
@@ -143,7 +162,17 @@ export class NotesPage {
     this.notesNavLink = page.getByRole('button', { name: 'Notes', exact: true });
     this.pageHeading = page.getByText('My Notes', { exact: true });
     this.takeNoteButton = page.getByRole('button', { name: 'Take a Note' });
-    this.emptyState = page.getByText('No notes yet', { exact: true });
+    /**
+     * The old empty-state copy ("No notes yet" / "Notes you add will appear
+     * here") no longer exists anywhere in the product -- measured live on
+     * staging 2026-09-16, both strings match 0 elements. A zero-notes page now
+     * renders the "Take a Note" composer affordance plus a Rooms grid and no
+     * empty-state text at all, so "empty" can only be asserted as the ABSENCE
+     * of note cards rather than the presence of a marker element.
+     */
+    this.noteCards = page
+      .locator('.MuiCard-root')
+      .filter({ hasNot: page.locator(COMPOSER_MARKER_SELECTOR) });
     this.toast = page.getByRole('status');
 
     // `.first()` is safe here even when a dialog is also open, because the
@@ -308,7 +337,7 @@ export class NotesPage {
    * class avoids the ambiguity.
    */
   noteCard(title: string): Locator {
-    return this.page.locator('.MuiCard-root').filter({ has: this.noteCardTitle(title) });
+    return this.noteCards.filter({ has: this.noteCardTitle(title) });
   }
 
   noteCardContent(title: string, content: string): Locator {
@@ -330,20 +359,31 @@ export class NotesPage {
    * were just not loaded yet at the moment of the check.
    */
   private async listHasNotesSettled(): Promise<boolean> {
-    const firstCard = this.page.locator('.MuiCard-root').first();
-
-    const outcome = await Promise.race([
-      firstCard.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }).then(() => true as const),
-      this.emptyState.waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS }).then(() => false as const),
-    ]).catch(() => undefined);
-
-    if (outcome !== undefined) {
-      return outcome;
-    }
-
-    // Neither resolved within the timeout (unexpected) -- fall back to a
-    // direct count rather than hanging indefinitely.
-    return (await this.page.locator('.MuiCard-root').count()) > 0;
+    // Previously this raced "first card visible" against "empty state
+    // visible". That second arm is now unmatchable by construction (the
+    // empty-state copy was removed from the product), so on a genuinely empty
+    // list BOTH arms rejected, the race fell through to a bare count()
+    // fallback, and the correct `false` was only returned after burning the
+    // full NAV_STEP_TIMEOUT_MS -- on every single call. That fallback is gone
+    // now: waiting for a note card and treating the timeout as "empty" has
+    // the same meaning in one step.
+    //
+    // With no positive "the list is empty" marker left to wait for, "empty"
+    // can only be concluded from a card never appearing, so the wait is kept
+    // rather than shortened: the list is populated by a GraphQL round trip
+    // that was still resolving ~8.5s after navigation start when measured on
+    // staging (2026-09-16), and a shorter window would reintroduce the
+    // premature-`false` bug described above -- the one that once read 0 on an
+    // account holding 18 notes, skipped cleanup entirely and failed the run.
+    //
+    // Note this waits on `noteCards`, not a bare `.MuiCard-root`: see
+    // COMPOSER_MARKER_SELECTOR for why the composer would otherwise be
+    // counted as a note and return a false TRUE.
+    return this.noteCards
+      .first()
+      .waitFor({ state: 'visible', timeout: NAV_STEP_TIMEOUT_MS })
+      .then(() => true)
+      .catch(() => false);
   }
 
   /** Whether at least one note currently exists in the list. */
@@ -504,7 +544,9 @@ export class NotesPage {
    * right after navigating in.
    */
   async deleteAllNotes() {
-    const cards = this.page.locator('.MuiCard-root');
+    // Composer-excluded (see COMPOSER_MARKER_SELECTOR): clicking the composer
+    // card here would open no delete dialog and hang out the timeout.
+    const cards = this.noteCards;
     // Bounds the loop so a genuine app bug (delete not actually removing
     // the card) fails fast with a clear error instead of hanging forever.
     const MAX_NOTES_TO_DELETE = 50;

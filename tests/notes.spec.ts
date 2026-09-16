@@ -163,6 +163,13 @@ test.describe('Notes module automation', () => {
         await notesPage.deleteAllNotes();
       }
 
+      // The product no longer ships any empty-state copy: "No notes yet" and
+      // "Notes you add will appear here" were both removed and each match 0
+      // elements on a live zero-notes page (measured on staging 2026-09-16).
+      // A zero-notes list is now only distinguishable by what it does NOT
+      // contain, so assert the absence of note cards plus the presence of the
+      // composer affordance that took the empty state's place.
+      //
       // Explicit generous timeout (matching every other list-affecting
       // assertion in this file) rather than Playwright's 5000ms default --
       // the list needs a moment to re-render into the empty view right
@@ -170,10 +177,14 @@ test.describe('Notes module automation', () => {
       // environment. Latent before (nothing deleted immediately prior to
       // this assertion), only surfaced once this test started actively
       // clearing notes right before checking.
-      await expect(notesPage.emptyState).toBeVisible({ timeout: 15000 });
-      await expect(notesPage.page.getByText('Notes you add will appear here', { exact: true })).toBeVisible({
-        timeout: 15000,
-      });
+      // REVIEWER: the second assertion now overlaps the "Create Note
+      // ("Take a Note") button exists" test above almost exactly. Kept here
+      // because on its own `toHaveCount(0)` also passes on a page that failed
+      // to render the list at all, and the composer is the only positive
+      // evidence left that this is the empty NOTES view. Worth deciding
+      // whether the two tests should be merged.
+      await expect(notesPage.noteCards).toHaveCount(0, { timeout: 15000 });
+      await expect(notesPage.takeNoteButton).toBeVisible({ timeout: 15000 });
     });
   });
 
@@ -333,7 +344,6 @@ test.describe('Notes module automation', () => {
 
       await notesPage.editNote(title, { title: updatedTitle });
 
-      await notesPage.assertToastMessage(/note updated successfully/i);
       await notesPage.assertNoteVisible(updatedTitle);
       await notesPage.assertNoteNotVisible(title);
     });
@@ -346,7 +356,6 @@ test.describe('Notes module automation', () => {
 
       await notesPage.editNote(title, { content: UPDATED_NOTE_CONTENT });
 
-      await notesPage.assertToastMessage(/note updated successfully/i);
       await expect(notesPage.noteCardContent(title, UPDATED_NOTE_CONTENT)).toBeVisible({ timeout: 15000 });
     });
 

@@ -99,7 +99,17 @@ export class TasksPage {
     this.skipTourButton = page.getByRole('button', { name: 'Skip' });
     this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
     this.moreNavToggle = page.getByRole('button', { name: 'More', exact: true });
-    this.myTasksNavLink = page.getByRole('button', { name: 'My Tasks', exact: true });
+    // In the rail, My Tasks is a <button>. Once it overflows into the "More"
+    // popup the SAME item renders as a MUI MenuItem -- role=menuitem, not
+    // button -- so a button-only locator matches nothing there. Measured live
+    // on staging 144.34.0-staging.3 (entry index-tjohjqFQ): after clicking
+    // More, getByRole('button', {name:'My Tasks'}) => 0 matches,
+    // getByRole('menuitem', {name:'My Tasks'}) => 1. The button-only locator
+    // made open()'s click wait forever, blowing the 300s beforeAll hook and
+    // skipping all 33 tests in tasks.spec.ts. Match either role.
+    this.myTasksNavLink = page
+      .getByRole('button', { name: 'My Tasks', exact: true })
+      .or(page.getByRole('menuitem', { name: 'My Tasks', exact: true }));
 
     // Always present regardless of whether the list is empty or populated
     // (confirmed live) -- the equivalent of NotesPage.ts's takeNoteButton as
@@ -175,12 +185,16 @@ export class TasksPage {
   async open() {
     await this.dismissOnboardingIfPresent();
 
-    const myTasksLinkShown = await this.myTasksNavLink.isVisible().catch(() => false);
+    const myTasksLinkShown = await this.myTasksNavLink.first().isVisible().catch(() => false);
     if (!myTasksLinkShown) {
       await this.moreNavToggle.click();
     }
 
-    await this.myTasksNavLink.click();
+    // Bounded on purpose: an unmatched nav locator used to hang here until the
+    // 300s beforeAll hook expired, which reports as a 0ms failure on the first
+    // test and silently skips the rest of the file. Failing in NAV_STEP_TIMEOUT_MS
+    // keeps a future nav change diagnosable instead of invisible.
+    await this.myTasksNavLink.first().click({ timeout: NAV_STEP_TIMEOUT_MS });
     await this.assertTasksPageLoaded();
   }
 

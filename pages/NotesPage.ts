@@ -117,7 +117,15 @@ export class NotesPage {
     // "Cancel" button, since they belong to unrelated dialogs.
     this.cancelTimezoneMismatchButton = page.getByRole('button', { name: 'Cancel' });
     this.moreNavToggle = page.getByRole('button', { name: 'More', exact: true });
-    this.notesNavLink = page.getByRole('button', { name: 'Notes', exact: true });
+    // Same defect and same fix as TasksPage.myTasksNavLink: in the rail Notes
+    // is a <button>, but in the "More" overflow popup it is a MUI MenuItem
+    // (role=menuitem), so a button-only locator never matches there and
+    // open()'s click hung until the 300s beforeAll hook expired -- which is
+    // what has been failing notes.spec.ts:138 and skipping the file, NOT the
+    // editor locator. Measured live on staging 144.34.0-staging.3.
+    this.notesNavLink = page
+      .getByRole('button', { name: 'Notes', exact: true })
+      .or(page.getByRole('menuitem', { name: 'Notes', exact: true }));
     this.pageHeading = page.getByText('My Notes', { exact: true });
     this.takeNoteButton = page.getByRole('button', { name: 'Take a Note' });
     this.emptyState = page.getByText('No notes yet', { exact: true });
@@ -174,12 +182,14 @@ export class NotesPage {
   async open() {
     await this.dismissOnboardingIfPresent();
 
-    const notesLinkShown = await this.notesNavLink.isVisible().catch(() => false);
+    const notesLinkShown = await this.notesNavLink.first().isVisible().catch(() => false);
     if (!notesLinkShown) {
       await this.moreNavToggle.click();
     }
 
-    await this.notesNavLink.click();
+    // Bounded for the same reason as TasksPage.open(): an unmatched nav
+    // locator must fail in seconds, not consume the whole beforeAll budget.
+    await this.notesNavLink.first().click({ timeout: NAV_STEP_TIMEOUT_MS });
     await this.assertNotesPageLoaded();
   }
 

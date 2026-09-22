@@ -369,10 +369,16 @@ export class NotesPage {
    * element) rather than a Ctrl+A keypress -- this app binds global
    * keyboard shortcuts (e.g. Ctrl+K for search) that can intercept Ctrl+A
    * before it reaches the field, leaving the "cleared" text intact.
+   *
+   * Both calls MUST be element-scoped. selectText() targets this element, so
+   * pairing it with a page-level page.keyboard.press() sends the Backspace to
+   * whatever happens to hold focus at that instant -- which under parallel
+   * workers is not reliably this field. Locator.press() focuses the element
+   * first, so the keystroke cannot land anywhere else. See TM2-T016.
    */
   private async clearField(locator: Locator) {
     await locator.selectText();
-    await this.page.keyboard.press('Backspace');
+    await locator.press('Backspace');
   }
 
   /** Clears the title of the note currently open in the edit dialog. */

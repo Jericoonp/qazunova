@@ -175,12 +175,23 @@ export class TasksPage {
   async open() {
     await this.dismissOnboardingIfPresent();
 
+    // Both nav clicks below are bounded explicitly. An unbounded click()
+    // inherits the ENCLOSING timeout, and open() is called from a beforeAll
+    // that deliberately runs at 300s (see tasks.spec.ts:51) to give the
+    // up-front bulk delete room for an unknown amount of leftover data. That
+    // budget is for the delete -- but a nav locator that never resolves
+    // was spending all of it before the delete was even reached. Measured on
+    // run 35920858352: this exact click sat on `getByRole('button', { name:
+    // 'My Tasks', exact: true })` for the full 300s, then did it again on retry;
+    // notes.spec.ts and tasks.spec.ts together burned 1204s of a 23.2min run
+    // (87% idle) reporting only "beforeAll hook timeout". At 15s a broken
+    // sidebar costs 60s across all four hook attempts instead of 1200s.
     const myTasksLinkShown = await this.myTasksNavLink.isVisible().catch(() => false);
     if (!myTasksLinkShown) {
-      await this.moreNavToggle.click();
+      await this.moreNavToggle.click({ timeout: NAV_STEP_TIMEOUT_MS });
     }
 
-    await this.myTasksNavLink.click();
+    await this.myTasksNavLink.click({ timeout: NAV_STEP_TIMEOUT_MS });
     await this.assertTasksPageLoaded();
   }
 

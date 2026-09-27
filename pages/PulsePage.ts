@@ -88,13 +88,14 @@ export class PulsePage {
   }
 
   /**
-   * Delete lives behind an unlabeled icon button in the Setup panel header -
-   * its accessible name is the raw i18n key "action.ariaLabel" rather than
-   * real text, which is itself a bug worth flagging separately.
+   * Delete lives behind an icon button in the Setup panel header: [archive,
+   * delete, close]. Its accessible name was the raw i18n key "action.ariaLabel"
+   * until app #11612 (26 Sep) removed that fallback and left it nameless; app
+   * #11616 (27 Sep) gave it the real label "Delete Pulse".
    */
   async deletePulse(name: string) {
     await this.openPulseSettings(name);
-    await this.page.getByRole('button', { name: 'action.ariaLabel' }).nth(1).click();
+    await this.page.getByRole('button', { name: 'Delete Pulse', exact: true }).click();
     await this.page.getByRole('button', { name: 'Yes' }).click();
   }
 

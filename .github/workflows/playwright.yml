@@ -1,80 +1,35 @@
 name: Playwright Tests
+
+# THIS BRANCH'S COPY IS A PROBE, NOT THE SUITE.
+#
+# `qa/byw-area-a-probe` answers one question: what does staging's
+# build-your-workspace page (workforce/plan) show the shared test account?
+# It runs probe/byw-area-a.spec.ts, read-only, instead of the regression suite.
+#
+# It overwrites playwright.yml because workflow_dispatch only registers
+# workflows that exist on the default branch; dispatching with --ref runs this
+# branch's copy. Nothing here reaches main: no PR, not merge-intended.
+#
+#   gh workflow run playwright.yml --ref qa/byw-area-a-probe
+#
+# -- MeQAtron
+
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  # Regression run every 6 hours, starting 08:00 PHT (UTC+8).
-  # 00:00/06:00/12:00/18:00 UTC == 08:00/14:00/20:00/02:00 PHT.
-  schedule:
-    - cron: '0 0,6,12,18 * * *'
-  # Allow manual, on-demand runs from the Actions tab.
+  # Manual only, so the probe can never log in as the shared account by accident.
   workflow_dispatch:
-    inputs:
-      browsers:
-        description: 'Browser(s) to run. Automatic runs are always chromium only; this is for one-off cross-engine checks.'
-        type: choice
-        required: false
-        default: chromium
-        options:
-          - chromium
-          - firefox
-          - webkit
-          - firefox+webkit
-          - all
 
 jobs:
   test:
-    # Bumped from 30: the suite now runs 67 tests/browser (was ~35) with the
-    # addition of tasks.spec.ts (32 tests, each paying its own full
-    # login+onboarding cost against a slow staging backend -- see that
-    # file's header comment). A live chromium run of just tasks.spec.ts
-    # alone took ~33 minutes; 30 minutes total was already tight for the
-    # rest of the suite (notes/login/dashboard/pulse) before this addition.
-    # webkit is the slowest engine here at ~61min, hence the headroom.
-    timeout-minutes: 90
+    # Same group as earlier probes, so it queues behind any other run that uses it.
+    concurrency:
+      group: playwright-staging-chromium
+      cancel-in-progress: false
+    timeout-minutes: 15
     runs-on: ubuntu-latest
-    strategy:
-      # One browser failing must not cancel the others -- the whole point of a
-      # cross-engine run is to see ALL the engines' results, especially when
-      # one of them is red.
-      fail-fast: false
-      # Automatic triggers (push / pull_request / schedule) carry no inputs, so
-      # this collapses to chromium alone -- the browser matrix was removed from
-      # automatic runs by request (Earl Dominic, 2026-07-31).
-      #
-      # The evidence backed that: on run 30323518312, where all three shards
-      # ran the same suite, firefox and webkit surfaced no product bug chromium
-      # missed (webkit's 2 failures were teardown/timeout artifacts, not engine
-      # behaviour), while webkit took 61min against chromium's 37min. Every run
-      # waited on the slowest, least informative shard.
-      #
-      # What that trade-off costs, and why this input exists: chromium-only CI
-      # cannot see a firefox/webkit-only defect AT ALL. TM2-T003 (notes
-      # clear-title) is exactly that shape -- in run 30574845877 it failed ONLY
-      # on firefox and webkit, so chromium-only CI reports green while the bug
-      # is still live. Use workflow_dispatch with this input to check the other
-      # engines deliberately, instead of paying for a permanent 3x fan-out.
-      matrix:
-        browser: ${{ fromJSON(
-          inputs.browsers == 'all' && '["chromium","firefox","webkit"]'
-          || inputs.browsers == 'firefox+webkit' && '["firefox","webkit"]'
-          || inputs.browsers == 'firefox' && '["firefox"]'
-          || inputs.browsers == 'webkit' && '["webkit"]'
-          || '["chromium"]') }}
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}
-      # Each browser authenticates as its OWN dedicated staging account, so
-      # concurrent shards never mutate each other's data (notes.spec.ts and
-      # tasks.spec.ts bulk-clear their account in beforeAll -- two browsers
-      # sharing one account would wipe each other's fixtures mid-run).
-      #
-      # This matters OUTSIDE CI too: LOGIN_TEST_USER is the same staging
-      # account used for manual browser QA, so a manual session and an
-      # in-flight chromium run corrupt each other. Check `gh run list` before
-      # doing manual QA against staging.
-      LOGIN_TEST_USER: ${{ matrix.browser == 'firefox' && secrets.LOGIN_TEST_USER_FIREFOX || matrix.browser == 'webkit' && secrets.LOGIN_TEST_USER_WEBKIT || secrets.LOGIN_TEST_USER }}
-      LOGIN_TEST_PASSWORD: ${{ matrix.browser == 'firefox' && secrets.LOGIN_TEST_PASSWORD_FIREFOX || matrix.browser == 'webkit' && secrets.LOGIN_TEST_PASSWORD_WEBKIT || secrets.LOGIN_TEST_PASSWORD }}
+      LOGIN_TEST_USER: ${{ secrets.LOGIN_TEST_USER }}
+      LOGIN_TEST_PASSWORD: ${{ secrets.LOGIN_TEST_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -82,26 +37,20 @@ jobs:
           node-version: lts/*
       - name: Install dependencies
         run: npm ci
-      - name: Install Playwright Browser (${{ matrix.browser }})
-        run: npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Run Playwright tests
-        run: npx playwright test --project=${{ matrix.browser }}
-      - name: Upload Playwright report
-        # Always keep the report on scheduled/manual runs (for the nightly record),
-        # and on any failed push/PR run.
-        if: ${{ !cancelled() }}
+      - name: Install Playwright Browser (chromium)
+        run: npx playwright install --with-deps chromium
+      - name: Probe build-your-workspace area A
+        run: |
+          set -o pipefail
+          npx playwright test --config playwright.probe.config.ts 2>&1 | tee probe-run.log
+      - name: Upload probe log and screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.browser }}
-          path: playwright-report/
-          retention-days: 30
-      - name: Upload failure screenshots & videos
-        # Raw per-test screenshots, videos, and traces for quick access without
-        # opening the full HTML report.
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-test-results-${{ matrix.browser }}
-          path: test-results/
-          retention-days: 30
+          name: probe-byw-area-a
+          path: |
+            probe-run.log
+            test-results/
+            playwright-report/
+          retention-days: 14
           if-no-files-found: ignore

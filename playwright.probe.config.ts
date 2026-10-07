@@ -16,6 +16,9 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     ...devices['Desktop Chrome'],
+    // The org is on Asia/Manila; a UTC runner gets a "Timezone Mismatch" modal over
+    // the page (run 37681723774). Matching the org avoids it with no click.
+    timezoneId: 'Asia/Manila',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

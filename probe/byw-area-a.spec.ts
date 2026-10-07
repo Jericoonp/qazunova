@@ -83,13 +83,19 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
   let after = null;
   // Safety: only act on a fresh start. If a saved board is showing, someone may
   // own it -- report and stop without clicking anything.
-  if (!before.hasAgain && before.opts.includes(PICK)) {
+  // Any modal still over the page (tour, dialog) would eat the click: record it and stop.
+  const modal = await page
+    .locator('.MuiModal-root:not([aria-hidden="true"])')
+    .first()
+    .innerText({ timeout: 2000 })
+    .catch(() => null);
+  if (!modal && !before.hasAgain && before.opts.includes(PICK)) {
     await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
     picked = true;
     await page.waitForTimeout(4000);
     after = await readScreen();
     await page.screenshot({ path: testInfo.outputPath('plan-after.png'), fullPage: true });
   }
-  const results = { landedOn, pick: PICK, picked, before, after };
+  const results = { landedOn, pick: PICK, picked, modal: modal && modal.replace(/\s+/g, ' ').slice(0, 200), before, after };
   console.log('BYW_PROBE_RESULT ' + JSON.stringify(results));
 });

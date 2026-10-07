@@ -44,7 +44,7 @@ const dialogRead = async (page: Page) => {
   const d = page.locator('[role="dialog"]:visible, [role="presentation"] .MuiPaper-root:visible').first();
   if (!(await d.count())) return null;
   return {
-    text: (await d.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 500),
+    text: (await d.innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' ').slice(0, 500),
     buttons: await d.locator('button').allInnerTexts().catch(() => []),
     inputs: await d.locator('input,textarea').count(),
   };
@@ -85,7 +85,7 @@ const handState = async (page: Page, unit: string) => {
   const mi = page.getByRole('menuitem', { name: /Hand to its lead/ }).first();
   const out = (await mi.count())
     ? {
-        text: (await mi.innerText().catch(() => '')).replace(/\s+/g, ' '),
+        text: (await mi.innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' '),
         ariaDisabled: await mi.getAttribute('aria-disabled'),
         cls: ((await mi.getAttribute('class')) || '').includes('Mui-disabled'),
       }
@@ -122,7 +122,8 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
   const closeDlg = async () => {
     if (!(await dlg().count())) return 'no dialog';
     const done = dlg().getByRole('button', { name: /^(Save|Done|OK|Close)$/ }).last();
-    if (await done.count()) { await done.click({ timeout: 15000 }); await settle(); return 'clicked ' + (await done.innerText().catch(() => '?')); }
+    // Read the label BEFORE clicking: the button detaches on close and a post-click innerText waits forever (run 37694305175 hung 256s here).
+    if (await done.count()) { const label = await done.innerText({ timeout: 3000 }).catch(() => '?'); await done.click({ timeout: 15000 }); await settle(); return 'clicked ' + label; }
     await page.keyboard.press('Escape'); await settle(); return 'escape';
   };
   const pickLead = async (parent: string, choice: RegExp, tag: string) => {

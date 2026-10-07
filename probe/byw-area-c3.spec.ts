@@ -20,7 +20,7 @@ import { LoginPage } from '../pages/LoginPage';
 
 const ORG_ID = 'a24d9793-4966-4611-975a-f7746e7fecf3';
 const PLAN_PATH = `/manager/organizations/${ORG_ID}/workforce/plan`;
-const LEAD = 'Carl'; // synthetic: from the email-only line carl.synthetic@example.com
+const LEAD = 'Carl Synthetic'; // synthetic; lead-dialog button names carry an avatar letter first ("C\n\nCarl Synthetic"), so never anchor with ^. From the email-only line carl.synthetic@example.com
 
 const readScreen = (page: Page) =>
   page.evaluate(() => {
@@ -197,7 +197,7 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
   // 2. Lead = Carl.
   let leadSet = false;
   if (!stoppedAt) {
-    stoppedAt = await pickLead(parent, new RegExp(`^${LEAD}`), 'lead');
+    stoppedAt = await pickLead(parent, new RegExp(LEAD), 'lead');
     if (!stoppedAt) {
       leadSet = true;
       const s = await readScreen(page);
@@ -225,7 +225,7 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
   if (await dlg().count()) { await page.keyboard.press('Escape'); await page.waitForTimeout(800); }
   if (guestSet) r.restoreRole = (await setRole(/^Member/, 'member')) ?? 'ok';
   if (leadSet) {
-    r.restoreLead = (await pickLead(parent, /^No lead$/, 'nolead')) ?? 'ok';
+    r.restoreLead = (await pickLead(parent, /No lead|Nobody|No one|Remove( the)? lead|Clear/i, 'nolead')) ?? 'ok';
     r.handAfterClear = await handState(page, parent);
   }
   const s = await readScreen(page);

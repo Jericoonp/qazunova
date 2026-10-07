@@ -20,6 +20,7 @@ import { LoginPage } from '../pages/LoginPage';
 
 const ORG_ID = 'a24d9793-4966-4611-975a-f7746e7fecf3';
 const PLAN_PATH = `/manager/organizations/${ORG_ID}/workforce/plan`;
+const CARD = 'Carl'; // board person cards show the FIRST name only (run 37693648277 c3-before.png), so the board guard and the person tap use this
 const LEAD = 'Carl Synthetic'; // synthetic; lead-dialog button names carry an avatar letter first ("C\n\nCarl Synthetic"), so never anchor with ^. From the email-only line carl.synthetic@example.com
 
 const readScreen = (page: Page) =>
@@ -148,8 +149,8 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
     return null;
   };
   const setRole = async (role: RegExp, tag: string) => {
-    const card = page.getByText(LEAD, { exact: true }).first();
-    if (!(await card.count())) return `no person card "${LEAD}"`;
+    const card = page.getByText(CARD, { exact: true }).first();
+    if (!(await card.count())) return `no person card "${CARD}"`;
     await card.click({ timeout: 15000 });
     await page.waitForTimeout(1500);
     r[tag + 'PersonDialog'] = await dialogRead(page);
@@ -190,7 +191,7 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
   if (!b.hasAgain) stoppedAt = 'no board on load';
   else if (!b.people || !b.people.startsWith('5 people, 1 team')) stoppedAt = 'board is not my 5-person 1-team draft: ' + b.people;
   else if (b.ariaMenus.length !== 1 || !parent) stoppedAt = 'expected exactly one unit menu, saw ' + JSON.stringify(b.ariaMenus);
-  else if (!b.main.includes(LEAD)) stoppedAt = `no "${LEAD}" on the board`;
+  else if (!b.main.includes(CARD)) stoppedAt = `no "${CARD}" card on the board`;
 
   if (!stoppedAt) r.handBefore = await handState(page, parent);
 

@@ -5,9 +5,9 @@
  * Runs in CI because driving the logged-in staging dashboard from my own box
  * exceeds my per-turn memory cap (four kills, latest 8 Oct).
  *
- * READ-ONLY: signs in, opens the page, reads text. It never clicks anything in
- * the app. In particular it never presses "Start again" (that clears a saved
- * plan someone may own) or Send.
+ * Signs in, opens the page and, ONLY on a fresh start, clicks one step-1
+ * option, then reads the next screen. Draft-only: it never presses
+ * "Start again" (that clears a saved plan someone may own) or Send.
  *
  * Output: one line starting BYW_PROBE_RESULT followed by JSON, plus a
  * full-page screenshot per URL tried, under test-results/.
@@ -47,32 +47,49 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
   const origin = appOrigin;
   const landedOn = new URL(page.url()).pathname;
 
-  const results = [];
-  for (const path of PLAN_PATHS) {
-    await page.goto(origin + path, { waitUntil: 'domcontentloaded' });
-    // Let the SPA settle: wait for the step counter or "Start again", else give up after 20s.
-    await page
-      .waitForFunction(() => /Step \d of 3|Start again/.test(document.body.innerText), null, { timeout: 20000 })
-      .catch(() => undefined);
-    const read = await page.evaluate((opts) => {
+  // Step 1 of area A: pick ONE option and read the screen it leads to.
+  // Draft-only: the plan saves as you go, but nothing reaches the real
+  // workspace until Send, which this probe never presses.
+  const PICK = 'A small team';
+  const path = PLAN_PATHS[0];
+  await page.goto(origin + path, { waitUntil: 'domcontentloaded' });
+  await page
+    .waitForFunction(() => /What are you bringing in\?|Start again/.test(document.body.innerText), null, { timeout: 30000 })
+    .catch(() => undefined);
+
+  // Name-independent read: every button's text, every short line mentioning "of 3".
+  const readScreen = () =>
+    page.evaluate((opts) => {
       const t = document.body.innerText;
-      const step = (t.match(/Step \d of 3/) || [null])[0];
-      const h = [...document.querySelectorAll('h1,h2,h3')].map((e) => (e.textContent || '').trim()).filter(Boolean).slice(0, 4);
       return {
         url: location.pathname,
-        step,
+        stepLines: t.split('\n').map((l) => l.trim()).filter((l) => /\bof 3\b/.test(l) && l.length < 80),
         opts: opts.filter((o) => t.includes(o)),
         hasAgain: t.includes('Start again'),
-        hasStartFromHere: t.includes('Start from what is here'),
-        h,
-        textHead: t.replace(/\s+/g, ' ').slice(0, 300),
+        h: [...document.querySelectorAll('h1,h2,h3')].map((e) => (e.textContent || '').trim()).filter(Boolean).slice(0, 6),
+        buttons: [...document.querySelectorAll('button,[role="button"]')]
+          .map((e) => (e.textContent || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' '))
+          .filter(Boolean)
+          .slice(0, 40),
+        textHead: t.replace(/\s+/g, ' ').slice(0, 600),
       };
     }, OPTIONS);
-    results.push({ tried: path, ...read });
-    await page.screenshot({ path: testInfo.outputPath(`plan-${results.length}.png`), fullPage: true });
-    // The armed check: a result read from the login page is not a reading of the plan page.
-    if (read.url.startsWith('/u/')) throw new Error('bounced to login: probe did not arm');
-    if (read.step || read.hasAgain) break;
+
+  const before = await readScreen();
+  await page.screenshot({ path: testInfo.outputPath('plan-before.png'), fullPage: true });
+  if (before.url.startsWith('/u/')) throw new Error('bounced to login: probe did not arm');
+
+  let picked = false;
+  let after = null;
+  // Safety: only act on a fresh start. If a saved board is showing, someone may
+  // own it -- report and stop without clicking anything.
+  if (!before.hasAgain && before.opts.includes(PICK)) {
+    await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
+    picked = true;
+    await page.waitForTimeout(4000);
+    after = await readScreen();
+    await page.screenshot({ path: testInfo.outputPath('plan-after.png'), fullPage: true });
   }
-  console.log('BYW_PROBE_RESULT ' + JSON.stringify({ landedOn, results }));
+  const results = { landedOn, pick: PICK, picked, before, after };
+  console.log('BYW_PROBE_RESULT ' + JSON.stringify(results));
 });

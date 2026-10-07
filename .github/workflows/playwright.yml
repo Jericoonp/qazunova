@@ -42,7 +42,7 @@ jobs:
       - name: Probe build-your-workspace (area C)
         run: |
           set -o pipefail
-          npx playwright test --config playwright.probe.config.ts probe/byw-area-c3.spec.ts 2>&1 | tee probe-run.log
+          npx playwright test --config playwright.probe.config.ts probe/byw-area-c4.spec.ts 2>&1 | tee probe-run.log
       - name: Upload probe log and screenshots
         if: always()
         uses: actions/upload-artifact@v4

@@ -72,6 +72,8 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
           .filter(Boolean)
           .slice(-30),
         textHead: t.replace(/\s+/g, ' ').slice(0, 1500),
+        // Anchored at the page title: the sidebar room list fills the first ~1500 chars otherwise.
+        main: t.slice(Math.max(0, t.lastIndexOf('Build your workspace'))).replace(/\s+/g, ' ').slice(0, 2500),
       };
     }, OPTIONS);
 
@@ -92,30 +94,59 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
     .first()
     .innerText({ timeout: 2000 })
     .catch(() => null);
+  // Step 3 of area A (run 6). Run 37685608653: Next opens "Who is in it?" (a paste box);
+  // a reload drops back to step 1, so the pick is redone every run. Here: paste a
+  // SYNTHETIC list (example.com only, labelled), read the count, build the board,
+  // then reload to see whether the BOARD survives. Never "Start again", never Send.
+  // The list has 4 distinct people + 1 exact duplicate line + 1 blank line,
+  // so a correct count is 4 (or 5 if duplicates are kept; either is a finding to read).
+  const PASTE = [
+    'Synthetic Aya, aya.synthetic@example.com, Designer',
+    'Synthetic Ben',
+    'carl.synthetic@example.com',
+    'Synthetic Dee, dee.synthetic@example.com, Owner',
+    '',
+    'Synthetic Ben',
+  ].join('\n');
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200)); });
   let picked = false;
-  let next = null;
+  let step2 = null;
+  let pasted = null;
+  let board = null;
   let reloaded = null;
+  let buildButton: string | null = null;
   if (!modal && before.opts.includes(PICK)) {
-    if (!persistedOnLoad) {
-      await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
-      picked = true;
-      await page.waitForTimeout(3000);
-    }
+    await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
+    picked = true;
+    await page.waitForTimeout(2000);
     await page.getByRole('button', { name: 'Next', exact: true }).click({ timeout: 15000 });
-    await page.waitForTimeout(4000);
-    next = await readScreen();
-    await page.screenshot({ path: testInfo.outputPath('plan-step2.png'), fullPage: true });
-
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => undefined);
     await page.waitForTimeout(3000);
-    reloaded = await readScreen();
-    await page.screenshot({ path: testInfo.outputPath('plan-reloaded.png'), fullPage: true });
+    step2 = await readScreen();
+    const box = page.locator('textarea:visible').first();
+    await box.fill(PASTE, { timeout: 15000 });
+    await page.waitForTimeout(3000);
+    pasted = await readScreen();
+    await page.screenshot({ path: testInfo.outputPath('plan-pasted.png'), fullPage: true });
+    // The build button's label may change once people are pasted: take whichever is there.
+    const build = page.getByRole('button', { name: /build the board/i }).first();
+    buildButton = await build.innerText({ timeout: 15000 }).catch(() => null);
+    if (buildButton) {
+      await build.click({ timeout: 15000 });
+      await page.waitForTimeout(5000);
+      board = await readScreen();
+      await page.screenshot({ path: testInfo.outputPath('plan-board.png'), fullPage: true });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => undefined);
+      await page.waitForTimeout(4000);
+      reloaded = await readScreen();
+      await page.screenshot({ path: testInfo.outputPath('plan-board-reloaded.png'), fullPage: true });
+    }
   }
   const results = {
     landedOn, pick: PICK, persistedOnLoad, picked,
     modal: modal && modal.replace(/\s+/g, ' ').slice(0, 200),
-    before, next, reloaded,
+    before, step2, pasted, buildButton, board, reloaded, consoleErrors: consoleErrors.slice(0, 15),
   };
   console.log('BYW_PROBE_RESULT ' + JSON.stringify(results));
 });

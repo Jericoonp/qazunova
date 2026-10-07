@@ -117,7 +117,8 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
     await page.waitForTimeout(3000);
   };
   const reload = async () => { await page.reload({ waitUntil: 'domcontentloaded' }); await settle(); };
-  const dlg = () => page.locator('[role="dialog"]:visible').first();
+  // The person panel is a MUI Drawer whose paper carries NO role="dialog" (run 37693890661), so match its paper too.
+  const dlg = () => page.locator('[role="dialog"]:visible, .MuiDrawer-paper:visible').first();
   const closeDlg = async () => {
     if (!(await dlg().count())) return 'no dialog';
     const done = dlg().getByRole('button', { name: /^(Save|Done|OK|Close)$/ }).last();
@@ -224,6 +225,7 @@ test('area C step 3: lead and person role on my synthetic draft', async ({ page 
 
   // 4. Restore whatever stopped above.
   if (await dlg().count()) { await page.keyboard.press('Escape'); await page.waitForTimeout(800); }
+  if (await dlg().count()) await reload(); // never leave a modal over the unit menu (run 37693890661 died here)
   if (guestSet) r.restoreRole = (await setRole(/^Member/, 'member')) ?? 'ok';
   if (leadSet) {
     r.restoreLead = (await pickLead(parent, /No lead|Nobody|No one|Remove( the)? lead|Clear/i, 'nolead')) ?? 'ok';

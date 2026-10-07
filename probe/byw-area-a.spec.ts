@@ -39,7 +39,13 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
   await login.goto(process.env.LOGIN_PAGE_URL);
   await login.login(user, password);
   await login.assertLoginSuccess();
-  const origin = new URL(page.url()).origin;
+  // Run 37680382456 navigated before the Auth0 callback finished and was bounced
+  // back to /u/login. Wait until the app itself has loaded and has left the login page.
+  const appOrigin = new URL(process.env.LOGIN_PAGE_URL!).origin;
+  await page.waitForURL((u) => u.origin === appOrigin && !u.pathname.startsWith('/u/'), { timeout: 60000 });
+  await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => undefined);
+  const origin = appOrigin;
+  const landedOn = new URL(page.url()).pathname;
 
   const results = [];
   for (const path of PLAN_PATHS) {
@@ -64,7 +70,9 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
     }, OPTIONS);
     results.push({ tried: path, ...read });
     await page.screenshot({ path: testInfo.outputPath(`plan-${results.length}.png`), fullPage: true });
+    // The armed check: a result read from the login page is not a reading of the plan page.
+    if (read.url.startsWith('/u/')) throw new Error('bounced to login: probe did not arm');
     if (read.step || read.hasAgain) break;
   }
-  console.log('BYW_PROBE_RESULT ' + JSON.stringify(results));
+  console.log('BYW_PROBE_RESULT ' + JSON.stringify({ landedOn, results }));
 });

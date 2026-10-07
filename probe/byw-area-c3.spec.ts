@@ -89,7 +89,16 @@ const handState = async (page: Page, unit: string) => {
         ariaDisabled: await mi.getAttribute('aria-disabled'),
         cls: ((await mi.getAttribute('class')) || '').includes('Mui-disabled'),
       }
-    : { error: 'no Hand to its lead item' };
+    : {
+        error: 'no Hand to its lead item',
+        // Name-independent: the label may change once a lead exists.
+        items: await page.getByRole('menuitem').evaluateAll((els) =>
+          els.map((e) => ({
+            text: ((e as HTMLElement).innerText || '').replace(/\s+/g, ' ').slice(0, 120),
+            ariaDisabled: e.getAttribute('aria-disabled'),
+          })),
+        ),
+      };
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
   return out;

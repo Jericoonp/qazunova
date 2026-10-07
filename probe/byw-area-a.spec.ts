@@ -5,8 +5,8 @@
  * Runs in CI because driving the logged-in staging dashboard from my own box
  * exceeds my per-turn memory cap (four kills, latest 8 Oct).
  *
- * Signs in, opens the page and, ONLY on a fresh start, clicks one step-1
- * option, then reads the next screen. Draft-only: it never presses
+ * Signs in, opens the page, makes sure "A small team" is picked, presses Next,
+ * reads step 2, then reloads to see whether the draft was saved. Draft-only: it never presses
  * "Start again" (that clears a saved plan someone may own) or Send.
  *
  * Output: one line starting BYW_PROBE_RESULT followed by JSON, plus a
@@ -70,8 +70,8 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
         buttons: [...document.querySelectorAll('button,[role="button"]')]
           .map((e) => (e.textContent || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' '))
           .filter(Boolean)
-          .slice(0, 40),
-        textHead: t.replace(/\s+/g, ' ').slice(0, 600),
+          .slice(-30),
+        textHead: t.replace(/\s+/g, ' ').slice(0, 1500),
       };
     }, OPTIONS);
 
@@ -79,23 +79,43 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
   await page.screenshot({ path: testInfo.outputPath('plan-before.png'), fullPage: true });
   if (before.url.startsWith('/u/')) throw new Error('bounced to login: probe did not arm');
 
-  let picked = false;
-  let after = null;
-  // Safety: only act on a fresh start. If a saved board is showing, someone may
-  // own it -- report and stop without clicking anything.
+  // Step 2 of area A (run 5). Run 37682553998 showed clicking a card only SELECTS it;
+  // a Next button moves on. The draft on this shared test org is mine (I picked
+  // "A small team" in that run), so a saved board is no longer a stop condition.
+  // Still draft-only: never "Start again" (clears a plan), never Send.
+  // Persistence: the left preview read "Your workspace" before run 4's pick and
+  // "Offshotly_auto / A small team" after it. A fresh load showing the latter means it was saved.
+  const persistedOnLoad = /Offshotly_auto\s*A small team/.test(before.textHead);
   // Any modal still over the page (tour, dialog) would eat the click: record it and stop.
   const modal = await page
     .locator('.MuiModal-root:not([aria-hidden="true"])')
     .first()
     .innerText({ timeout: 2000 })
     .catch(() => null);
-  if (!modal && !before.hasAgain && before.opts.includes(PICK)) {
-    await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
-    picked = true;
+  let picked = false;
+  let next = null;
+  let reloaded = null;
+  if (!modal && before.opts.includes(PICK)) {
+    if (!persistedOnLoad) {
+      await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
+      picked = true;
+      await page.waitForTimeout(3000);
+    }
+    await page.getByRole('button', { name: 'Next', exact: true }).click({ timeout: 15000 });
     await page.waitForTimeout(4000);
-    after = await readScreen();
-    await page.screenshot({ path: testInfo.outputPath('plan-after.png'), fullPage: true });
+    next = await readScreen();
+    await page.screenshot({ path: testInfo.outputPath('plan-step2.png'), fullPage: true });
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => undefined);
+    await page.waitForTimeout(3000);
+    reloaded = await readScreen();
+    await page.screenshot({ path: testInfo.outputPath('plan-reloaded.png'), fullPage: true });
   }
-  const results = { landedOn, pick: PICK, picked, modal: modal && modal.replace(/\s+/g, ' ').slice(0, 200), before, after };
+  const results = {
+    landedOn, pick: PICK, persistedOnLoad, picked,
+    modal: modal && modal.replace(/\s+/g, ' ').slice(0, 200),
+    before, next, reloaded,
+  };
   console.log('BYW_PROBE_RESULT ' + JSON.stringify(results));
 });

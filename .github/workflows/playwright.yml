@@ -24,7 +24,7 @@ jobs:
     concurrency:
       group: playwright-staging-chromium
       cancel-in-progress: false
-    timeout-minutes: 15
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     env:
       LOGIN_PAGE_URL: ${{ secrets.LOGIN_PAGE_URL }}

@@ -5,9 +5,9 @@
  * Runs in CI because driving the logged-in staging dashboard from my own box
  * exceeds my per-turn memory cap (four kills, latest 8 Oct).
  *
- * Signs in, opens the page, makes sure "A small team" is picked, presses Next,
- * reads step 2, then reloads to see whether the draft was saved. Draft-only: it never presses
- * "Start again" (that clears a saved plan someone may own) or Send.
+ * Signs in and opens the page. Run 7 tests "Start again" -> "Bring back the plan I had"
+ * on MY OWN synthetic draft board (it stops unless the board holds exactly that 5-person
+ * draft). Draft-only: it never presses Send.
  *
  * Output: one line starting BYW_PROBE_RESULT followed by JSON, plus a
  * full-page screenshot per URL tried, under test-results/.
@@ -94,59 +94,63 @@ test('area A: read the workforce/plan entry state', async ({ page }, testInfo) =
     .first()
     .innerText({ timeout: 2000 })
     .catch(() => null);
-  // Step 3 of area A (run 6). Run 37685608653: Next opens "Who is in it?" (a paste box);
-  // a reload drops back to step 1, so the pick is redone every run. Here: paste a
-  // SYNTHETIC list (example.com only, labelled), read the count, build the board,
-  // then reload to see whether the BOARD survives. Never "Start again", never Send.
-  // The list has 4 distinct people + 1 exact duplicate line + 1 blank line,
-  // so a correct count is 4 (or 5 if duplicates are kept; either is a finding to read).
-  const PASTE = [
-    'Synthetic Aya, aya.synthetic@example.com, Designer',
-    'Synthetic Ben',
-    'carl.synthetic@example.com',
-    'Synthetic Dee, dee.synthetic@example.com, Owner',
-    '',
-    'Synthetic Ben',
-  ].join('\n');
+  // Step 4 of area A (run 7). Run 37687949892 built a board from a SYNTHETIC list
+  // (5 people, 1 team, Saved) and it survived a reload, so this page now opens on MY
+  // draft. Test "Start again" -> confirm -> "Bring back the plan I had" restores it.
+  // Safe: the draft is my own synthetic board; nothing is sent. Never press Send.
   const consoleErrors: string[] = [];
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200)); });
-  let picked = false;
-  let step2 = null;
-  let pasted = null;
-  let board = null;
+  const dialogRead = async () => {
+    const d = page.locator('[role="dialog"]:visible').first();
+    if (!(await d.count())) return null;
+    return {
+      text: (await d.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 400),
+      buttons: await d.locator('button').allInnerTexts().catch(() => []),
+    };
+  };
+  let dialog = null;
+  let cleared = null;
+  let restored = null;
   let reloaded = null;
-  let buildButton: string | null = null;
-  if (!modal && before.opts.includes(PICK)) {
-    await page.getByText(PICK, { exact: true }).first().click({ timeout: 15000 });
-    picked = true;
+  let stoppedAt: string | null = null;
+  const peopleIn = (x: { main: string } | null) => (x ? (x.main.match(/(\d+) people, \d+ team/) || [])[1] ?? null : null);
+  if (!before.hasAgain) stoppedAt = 'no board on load (Start again missing)';
+  else if (peopleIn(before) !== '5') stoppedAt = 'board is not my 5-person draft: ' + peopleIn(before);
+  else if (modal) stoppedAt = 'modal open on load';
+  else {
+    await page.getByRole('button', { name: 'Start again', exact: true }).first().click({ timeout: 15000 });
     await page.waitForTimeout(2000);
-    await page.getByRole('button', { name: 'Next', exact: true }).click({ timeout: 15000 });
-    await page.waitForTimeout(3000);
-    step2 = await readScreen();
-    const box = page.locator('textarea:visible').first();
-    await box.fill(PASTE, { timeout: 15000 });
-    await page.waitForTimeout(3000);
-    pasted = await readScreen();
-    await page.screenshot({ path: testInfo.outputPath('plan-pasted.png'), fullPage: true });
-    // The build button's label may change once people are pasted: take whichever is there.
-    const build = page.getByRole('button', { name: /build the board/i }).first();
-    buildButton = await build.innerText({ timeout: 15000 }).catch(() => null);
-    if (buildButton) {
-      await build.click({ timeout: 15000 });
-      await page.waitForTimeout(5000);
-      board = await readScreen();
-      await page.screenshot({ path: testInfo.outputPath('plan-board.png'), fullPage: true });
+    dialog = await dialogRead();
+    await page.screenshot({ path: testInfo.outputPath('plan-again-dialog.png'), fullPage: true });
+    if (dialog) {
+      const confirm = page.locator('[role="dialog"]:visible').getByRole('button', { name: 'Start again', exact: true });
+      if (await confirm.count()) {
+        await confirm.first().click({ timeout: 15000 });
+        await page.waitForTimeout(3000);
+      } else stoppedAt = 'no "Start again" confirm in dialog';
+    }
+    if (!stoppedAt) {
+      cleared = await readScreen();
+      await page.screenshot({ path: testInfo.outputPath('plan-cleared.png'), fullPage: true });
+      const back = page.getByText('Bring back the plan I had', { exact: true }).first();
+      if (await back.count()) {
+        await back.click({ timeout: 15000 });
+        await page.waitForTimeout(4000);
+        restored = await readScreen();
+        await page.screenshot({ path: testInfo.outputPath('plan-restored.png'), fullPage: true });
+      } else stoppedAt = '"Bring back the plan I had" not found after clearing';
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => undefined);
       await page.waitForTimeout(4000);
       reloaded = await readScreen();
-      await page.screenshot({ path: testInfo.outputPath('plan-board-reloaded.png'), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath('plan-restored-reloaded.png'), fullPage: true });
     }
   }
   const results = {
-    landedOn, pick: PICK, persistedOnLoad, picked,
+    landedOn, persistedOnLoad, stoppedAt,
     modal: modal && modal.replace(/\s+/g, ' ').slice(0, 200),
-    before, step2, pasted, buildButton, board, reloaded, consoleErrors: consoleErrors.slice(0, 15),
+    peopleBefore: peopleIn(before), peopleRestored: peopleIn(restored), peopleReloaded: peopleIn(reloaded),
+    before, dialog, cleared, restored, reloaded, consoleErrors: consoleErrors.slice(0, 15),
   };
   console.log('BYW_PROBE_RESULT ' + JSON.stringify(results));
 });
